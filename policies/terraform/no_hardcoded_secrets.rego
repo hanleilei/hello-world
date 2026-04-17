@@ -17,9 +17,7 @@
 
 package terraform.secrets
 
-import future.keywords.contains
-import future.keywords.if
-import future.keywords.in
+import rego.v1
 
 # ─── Attribute names that warrant scrutiny ───────────────────────────────────
 sensitive_attr_names := {
