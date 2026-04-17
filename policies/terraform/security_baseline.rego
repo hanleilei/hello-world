@@ -31,6 +31,7 @@ package terraform.security_baseline
 
 import future.keywords.contains
 import future.keywords.if
+import future.keywords.in
 
 # ─── Approved service-linked role service names ───────────────────────────────
 # Only these AWS service principals may be created as service-linked roles via
