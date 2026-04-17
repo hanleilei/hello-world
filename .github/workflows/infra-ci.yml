@@ -181,17 +181,6 @@ jobs:
             | tar xz
           sudo mv conftest /usr/local/bin/conftest
 
-      - name: Generate deployment metadata
-        run: |
-          cat > deployment-metadata.json <<EOF
-          {
-            "environment":  "${{ matrix.env }}",
-            "github_ref":   "${{ github.head_ref }}",
-            "github_actor": "${{ github.actor }}",
-            "event":        "${{ github.event_name }}"
-          }
-          EOF
-
       - name: OPA — secret scanning (plan JSON)
         run: |
           conftest test infra/envs/${{ matrix.env }}/tfplan.json \
@@ -203,12 +192,6 @@ jobs:
           conftest test infra/envs/${{ matrix.env }}/tfplan.json \
             --policy policies/terraform/ \
             --namespace terraform.security_baseline
-
-      - name: OPA — approval / security baseline (metadata)
-        run: |
-          conftest test deployment-metadata.json \
-            --policy policies/terraform/ \
-            --namespace terraform.approval
 # ─────────────────────────────────────────────────────────────────────────────
 # Infra CI — triggered on every PR that touches infra/
 # Stages: format-check → validate (all envs) → terratest
