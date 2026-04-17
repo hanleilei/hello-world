@@ -1,0 +1,199 @@
+# Service CD — runs when a PR is merged into main that touches application code.
+# Stages: validate → deploy-dev → deploy-test → deploy-perf →
+#         deploy-staging (approval) → deploy-production (approval)
+#
+# Deploy strategy:
+#   Uses `chalice deploy --stage <env>` which packages the app and updates
+#   the Lambda function + API Gateway in one step.
+#
+# Required repository secrets:
+#   AWS_ROLE_ARN  — OIDC role with Lambda, API Gateway, IAM, and DynamoDB permissions
+#
+# Required GitHub Environments (Settings → Environments):
+#   dev, test, perf — no protection rules
+#   staging         — Required reviewers: 1+, Restrict to: main branch
+#   production      — Required reviewers: 1+, Restrict to: main branch
+
+name: Service CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/service-cd.yml'
+
+env:
+  AWS_REGION: 'us-east-1'
+  PYTHON_VERSION: '3.12'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ─── Stage 1: Validate deployment artifact ────────────────────────────────
+  validate:
+    name: Validate Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit/ --cov=src --cov-fail-under=70 -q
+
+      - name: Validate chalice package (dev stage)
+        run: chalice --project-dir src package --stage dev /tmp/chalice-pkg
+
+  # ─── Stage 2: Deploy to dev (auto) ────────────────────────────────────────
+  deploy-dev:
+    name: Deploy / dev
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to dev
+        run: chalice --project-dir src deploy --stage dev
+
+  # ─── Stage 3: Deploy to test (auto, after dev) ────────────────────────────
+  deploy-test:
+    name: Deploy / test
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to test
+        run: chalice --project-dir src deploy --stage test
+
+  # ─── Stage 4: Deploy to perf (auto, after test) ────────────────────────────
+  deploy-perf:
+    name: Deploy / perf
+    runs-on: ubuntu-latest
+    needs: deploy-test
+    environment: perf
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to perf
+        run: chalice --project-dir src deploy --stage perf
+
+  # ─── Stage 5: Deploy to staging (manual approval) ─────────────────────────
+  deploy-staging:
+    name: Deploy / staging
+    runs-on: ubuntu-latest
+    needs: deploy-perf
+    environment: staging   # pauses for reviewer approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to staging (primary region)
+        run: chalice --project-dir src deploy --stage staging
+
+      - name: Deploy to staging (secondary region)
+        env:
+          AWS_DEFAULT_REGION: us-west-2
+        run: chalice --project-dir src deploy --stage staging
+
+  # ─── Stage 6: Deploy to production (manual approval) ──────────────────────
+  deploy-production:
+    name: Deploy / production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    environment: production   # pauses for reviewer approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to production (primary region)
+        run: chalice --project-dir src deploy --stage production
+
+      - name: Deploy to production (secondary region)
+        env:
+          AWS_DEFAULT_REGION: us-west-2
+        run: chalice --project-dir src deploy --stage production
+# ─────────────────────────────────────────────────────────────────────────────
+
+

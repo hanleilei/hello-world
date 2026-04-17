@@ -1,0 +1,46 @@
+{
+  "version": "2.0",
+  "app_name": "hello-world",
+  "stages": {
+    "dev": {
+      "api_gateway_stage": "api",
+      "autogen_policy": true,
+      "environment_variables": {
+        "ENV": "dev",
+        "TABLE_NAME": "hello-world-items-dev"
+      }
+    },
+    "test": {
+      "api_gateway_stage": "api",
+      "autogen_policy": true,
+      "environment_variables": {
+        "ENV": "test",
+        "TABLE_NAME": "hello-world-items-test"
+      }
+    },
+    "perf": {
+      "api_gateway_stage": "api",
+      "autogen_policy": true,
+      "environment_variables": {
+        "ENV": "perf",
+        "TABLE_NAME": "hello-world-items-perf"
+      }
+    },
+    "staging": {
+      "api_gateway_stage": "api",
+      "autogen_policy": true,
+      "environment_variables": {
+        "ENV": "staging",
+        "TABLE_NAME": "hello-world-items-staging"
+      }
+    },
+    "production": {
+      "api_gateway_stage": "api",
+      "autogen_policy": true,
+      "environment_variables": {
+        "ENV": "production",
+        "TABLE_NAME": "hello-world-items-production"
+      }
+    }
+  }
+}

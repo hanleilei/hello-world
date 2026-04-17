@@ -1,1 +1,6 @@
 .terraform
+*.tfstate
+*.tfstate.backup
+# bootstrap tfvars contains github_org — keep out of version control
+bootstrap/terraform.tfvars
+

@@ -1,0 +1,4 @@
+# Runtime dependencies bundled into the Lambda deployment package by chalice.
+# Keep lean: only what the Lambda function needs at runtime.
+boto3==1.38.0
+httpx==0.28.1

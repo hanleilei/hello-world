@@ -1,0 +1,73 @@
+# docker-compose.test.yml
+#
+# E2E test stack for the Chalice application.
+#
+# Services:
+#   localstack  — DynamoDB + SQS emulation via LocalStack
+#   app         — Chalice app served with `chalice local` (connects to LocalStack)
+#   test-runner — runs pytest tests/e2e/ against the live app container
+
+services:
+  # ─── LocalStack (DynamoDB + SQS emulation) ──────────────────────────────────
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: dynamodb,sqs
+      DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  # ─── Application (chalice local) ────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    ports:
+      - "8000:8000"
+    environment:
+      ENV: test
+      TABLE_NAME: hello-world-items-test
+      AWS_DEFAULT_REGION: us-east-1
+      # Point boto3 at LocalStack; app.py calls ensure_table_if_local() on startup.
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+
+  # ─── E2E test runner ────────────────────────────────────────────────────────
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder   # has all dev + runtime deps installed
+    working_dir: /build
+    command: ["pytest", "tests/e2e/", "-v", "--tb=short"]
+    environment:
+      APP_BASE_URL: http://app:8000
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      app:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    restart: "no"
+
