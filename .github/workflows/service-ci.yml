@@ -1,0 +1,203 @@
+# Service CI — runs on every PR targeting main that touches application code.
+# Stages: secret-scan → lint → unit-test → security-scan → chalice-package → e2e-test
+#
+# Application layout:
+#   app.py       — Chalice entry point
+#   chalicelib/  — Application modules (DynamoDB helpers, etc.)
+#   .chalice/    — Chalice config (config.json)
+#
+# Required repository secrets:
+#   AWS_ROLE_ARN  — OIDC role (used only for the e2e-test job's AWS mock)
+
+name: Service CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/service-*.yml'
+
+env:
+  AWS_REGION: 'us-east-1'
+  PYTHON_VERSION: '3.12'
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  # ─── Stage 1: Secret scan ─────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Stage 2: Lint ────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install lint dependencies
+        run: pip install flake8 black isort
+
+      - name: flake8
+        run: flake8 src/ tests/ --max-line-length=120 --extend-ignore=E203
+
+      - name: black (format check)
+        run: black --check src/ tests/
+
+      - name: isort (import order check)
+        run: isort --check-only src/ tests/
+
+  # ─── Stage 3: Unit tests + coverage ──────────────────────────────────────────
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/unit/ \
+            --cov=src \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ─── Stage 4: Security scanning ───────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt || true
+
+      # Static analysis: Python-specific SAST
+      - name: Bandit (Python SAST)
+        run: |
+          pip install bandit
+          bandit -r src/ -ll -ii --format json -o bandit-report.json || true
+          bandit -r src/ -ll -ii
+
+      # Dependency vulnerability scan
+      - name: Safety (dependency CVE check)
+        run: |
+          pip install safety
+          safety check --full-report
+
+      # Container image scan (on Dockerfile)
+      - name: Trivy (Dockerfile misconfiguration)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          retention-days: 7
+
+  # ─── Stage 5: Chalice package (validates deployment artifact builds) ─────────
+  chalice-package:
+    name: Chalice Package
+    runs-on: ubuntu-latest
+    needs: [lint, unit-test, security-scan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: chalice package (dry-run for dev stage)
+        run: chalice --project-dir src package --stage dev /tmp/chalice-pkg
+
+      - name: Verify Lambda zip was created
+        run: ls -lh /tmp/chalice-pkg/deployment.zip
+
+  # ─── Stage 6: E2E smoke test (docker-compose + LocalStack) ──────────────────
+  e2e-test:
+    name: E2E Smoke Test
+    runs-on: ubuntu-latest
+    needs: chalice-package
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and start services
+        run: |
+          docker compose -f docker-compose.test.yml up -d --build
+          # Wait for health checks to pass (max 60s)
+          timeout 60 bash -c 'until docker compose -f docker-compose.test.yml ps | grep -q "healthy"; do sleep 2; done'
+
+      - name: Run E2E tests
+        run: |
+          # Replace with your actual e2e test command, e.g. pytest tests/e2e/
+          docker compose -f docker-compose.test.yml run --rm test-runner
+
+      - name: Collect logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.test.yml logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
+# ─────────────────────────────────────────────────────────────────────────────
+

@@ -1,0 +1,207 @@
+# Infra CI — runs on every PR targeting main that touches infra or pipeline files.
+# Stages: secret-scan → fmt/validate → plan (all envs) → OPA policy check
+#
+# Required repository secrets:
+#   AWS_ROLE_ARN  — IAM role ARN for OIDC federation (read-only plan permissions)
+#
+# Required GitHub environment protection rules (for CD — see infra-cd.yml):
+#   staging     — require 1 reviewer, restrict to main branch
+#   production  — require 1 reviewer, restrict to main branch
+
+name: Infra CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra-*.yml'
+      - 'policies/**'
+
+env:
+  TF_VERSION: '1.10.0'
+  AWS_REGION: 'us-east-1'
+  CONFTEST_VERSION: '0.51.0'
+
+permissions:
+  contents: read
+  pull-requests: write   # post plan comments
+  id-token: write        # OIDC → AWS
+
+jobs:
+  # ─── Stage 1: Secret scan ────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for gitleaks
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Stage 2: Format check + validate (all envs in parallel) ─────────────────
+  fmt-validate:
+    name: Fmt & Validate / ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, test, perf, staging, production]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Format Check
+        working-directory: infra/envs/${{ matrix.env }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        working-directory: infra/envs/${{ matrix.env }}
+        run: terraform init -input=false
+
+      - name: Terraform Validate
+        working-directory: infra/envs/${{ matrix.env }}
+        run: terraform validate
+
+  # ─── Stage 3: Plan (all envs in parallel) ─────────────────────────────────────
+  plan:
+    name: Plan / ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    needs: fmt-validate
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, test, perf, staging, production]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: infra/envs/${{ matrix.env }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: infra/envs/${{ matrix.env }}
+        run: |
+          set +e
+          terraform plan \
+            -var-file=terraform.tfvars \
+            -out=tfplan.binary \
+            -input=false \
+            -no-color 2>&1 | tee plan.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          # Export plan as JSON for OPA
+          terraform show -json tfplan.binary > tfplan.json
+          exit $EXIT_CODE
+
+      - name: Post plan summary to PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = fs.readFileSync('infra/envs/${{ matrix.env }}/plan.txt', 'utf8');
+            const body = raw.length > 60000
+              ? raw.substring(0, 60000) + '\n…(truncated — download artifact for full plan)'
+              : raw;
+            const outcome = '${{ steps.plan.outputs.exit_code }}' === '0' ? '✅' : '❌';
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ${outcome} Terraform Plan: \`${{ matrix.env }}\`\n\`\`\`\n${body}\n\`\`\``,
+            });
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: |
+            infra/envs/${{ matrix.env }}/tfplan.binary
+            infra/envs/${{ matrix.env }}/tfplan.json
+          retention-days: 7
+
+  # ─── Stage 4: OPA policy checks on plan JSON ──────────────────────────────────
+  opa-check:
+    name: OPA Policy / ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [dev, test, perf, staging, production]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: infra/envs/${{ matrix.env }}
+
+      - name: Install Conftest
+        run: |
+          curl -sL \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${{ env.CONFTEST_VERSION }}/conftest_${{ env.CONFTEST_VERSION }}_Linux_x86_64.tar.gz" \
+            | tar xz
+          sudo mv conftest /usr/local/bin/conftest
+
+      - name: Generate deployment metadata
+        run: |
+          cat > deployment-metadata.json <<EOF
+          {
+            "environment":  "${{ matrix.env }}",
+            "github_ref":   "${{ github.head_ref }}",
+            "github_actor": "${{ github.actor }}",
+            "event":        "${{ github.event_name }}"
+          }
+          EOF
+
+      - name: OPA — secret scanning (plan JSON)
+        run: |
+          conftest test infra/envs/${{ matrix.env }}/tfplan.json \
+            --policy policies/terraform/ \
+            --namespace terraform.secrets
+
+      - name: OPA — security baseline (plan JSON)
+        run: |
+          conftest test infra/envs/${{ matrix.env }}/tfplan.json \
+            --policy policies/terraform/ \
+            --namespace terraform.security_baseline
+
+      - name: OPA — approval / security baseline (metadata)
+        run: |
+          conftest test deployment-metadata.json \
+            --policy policies/terraform/ \
+            --namespace terraform.approval
+# ─────────────────────────────────────────────────────────────────────────────
+# Infra CI — triggered on every PR that touches infra/
+# Stages: format-check → validate (all envs) → terratest
+# No AWS apply — read-only checks only.
+# ─────────────────────────────────────────────────────────────────────────────
+
