@@ -28,6 +28,12 @@ permissions:
   pull-requests: write   # post plan comments
   id-token: write        # OIDC → AWS
 
+# Cancel older runs on the same branch so a force-push doesn't queue stale plans.
+# cancel-in-progress: true is safe for CI because no destructive changes are made.
+concurrency:
+  group: infra-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ─── Stage 1: Secret scan ────────────────────────────────────────────────────
   secret-scan:
@@ -112,11 +118,15 @@ jobs:
             -var-file=terraform.tfvars \
             -out=tfplan.binary \
             -input=false \
+            -lock-timeout=120s \
             -no-color 2>&1 | tee plan.txt
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-          # Export plan as JSON for OPA
-          terraform show -json tfplan.binary > tfplan.json
+          # Only convert to JSON if the plan binary was actually created.
+          # (plan fails on lock → no binary → show would error without this guard)
+          if [[ $EXIT_CODE -eq 0 && -f tfplan.binary ]]; then
+            terraform show -json tfplan.binary > tfplan.json
+          fi
           exit $EXIT_CODE
 
       - name: Post plan summary to PR

@@ -27,6 +27,13 @@ permissions:
   contents: read
   id-token: write   # OIDC → AWS
 
+# Prevent two deployments from running at the same time.
+# cancel-in-progress: false means a second push queues instead of killing
+# an in-flight deployment (safer for infrastructure changes).
+concurrency:
+  group: infra-deploy
+  cancel-in-progress: false
+
 # ─── Reusable apply logic (called per environment) ───────────────────────────
 # GitHub Actions does not support reusable steps inline, so each job repeats
 # the core steps. A composite action can DRY this up in a follow-on task.
@@ -81,7 +88,8 @@ jobs:
           terraform apply \
             -var-file=terraform.tfvars \
             -auto-approve \
-            -input=false
+            -input=false \
+            -lock-timeout=300s
 
   # ─── test (auto, after dev) ───────────────────────────────────────────────────
   apply-test:
@@ -127,7 +135,8 @@ jobs:
           terraform apply \
             -var-file=terraform.tfvars \
             -auto-approve \
-            -input=false
+            -input=false \
+            -lock-timeout=300s
 
   # ─── perf (auto, after test) ──────────────────────────────────────────────────
   apply-perf:
@@ -173,7 +182,8 @@ jobs:
           terraform apply \
             -var-file=terraform.tfvars \
             -auto-approve \
-            -input=false
+            -input=false \
+            -lock-timeout=300s
 
   # ─── staging (manual approval gate) ──────────────────────────────────────────
   apply-staging:
@@ -222,6 +232,7 @@ jobs:
             -var-file=terraform.tfvars \
             -out=tfplan.binary \
             -input=false \
+            -lock-timeout=300s \
             -no-color
           terraform show -json tfplan.binary > tfplan.json
       - name: OPA — security baseline (plan JSON)
@@ -239,7 +250,8 @@ jobs:
           terraform apply \
             -var-file=terraform.tfvars \
             -auto-approve \
-            -input=false
+            -input=false \
+            -lock-timeout=300s
 
   # ─── production (manual approval gate) ───────────────────────────────────────
   apply-production:
@@ -286,6 +298,7 @@ jobs:
             -var-file=terraform.tfvars \
             -out=tfplan.binary \
             -input=false \
+            -lock-timeout=300s \
             -no-color
           terraform show -json tfplan.binary > tfplan.json
       - name: OPA — security baseline (plan JSON)
@@ -303,7 +316,8 @@ jobs:
           terraform apply \
             -var-file=terraform.tfvars \
             -auto-approve \
-            -input=false
+            -input=false \
+            -lock-timeout=300s
 # Infra CD — triggered on merge to main (infra/ changes) or manual dispatch.
 # Flow per environment:
 #   plan → (approval gate for perf/staging/production) → apply
