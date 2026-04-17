@@ -113,6 +113,17 @@ data "aws_iam_policy_document" "github_ci_state" {
     ]
   }
 
+  # Terraform 1.10+ native S3 locking writes a .tflock file alongside the
+  # state file. CI (plan) must be able to acquire and release that lock.
+  # Scope is restricted to *.tflock keys only — actual state files remain
+  # read-only for the CI role.
+  statement {
+    sid     = "S3LockFile"
+    effect  = "Allow"
+    actions = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.terraform_state.arn}/*.tflock"]
+  }
+
   statement {
     sid     = "StateLock"
     effect  = "Allow"
