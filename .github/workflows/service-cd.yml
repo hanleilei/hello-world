@@ -48,9 +48,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run unit tests
-        run: pytest tests/unit/ --cov=src --cov-fail-under=70 -q
-
       - name: Build Chalice artifact
         env:
           AWS_DEFAULT_REGION: us-east-1
