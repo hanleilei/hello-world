@@ -27,6 +27,7 @@ on:
 
 env:
   AWS_REGION: 'us-east-1'
+  AWS_DEFAULT_REGION: 'us-east-1'
   PYTHON_VERSION: '3.12'
 
 permissions:
