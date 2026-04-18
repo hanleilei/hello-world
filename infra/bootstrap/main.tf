@@ -30,11 +30,6 @@ resource "aws_kms_key" "terraform_state" {
   description             = "CMK for Terraform state S3 bucket (AWS-0132)"
   deletion_window_in_days = 10
   enable_key_rotation     = true
-
-  tags = {
-    Name      = "terraform-state-kms"
-    ManagedBy = "terraform-bootstrap"
-  }
 }
 
 resource "aws_kms_alias" "terraform_state" {
