@@ -21,10 +21,13 @@ on:
       - 'requirements*.txt'
       - 'pyproject.toml'
       - '.github/workflows/service-*.yml'
+  # Called by release.yml after infra-cd completes, enforcing full ordering.
+  workflow_call:
 
 env:
   AWS_REGION: 'us-east-1'
   PYTHON_VERSION: '3.12'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
@@ -116,7 +119,9 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt || true
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt || true
 
       # Static analysis: Python-specific SAST
       - name: Bandit (Python SAST)
@@ -129,7 +134,7 @@ jobs:
       - name: Safety (dependency CVE check)
         run: |
           pip install safety
-          safety check --full-report
+          safety scan --full-report
 
       # Container image scan (on Dockerfile)
       - name: Trivy (Dockerfile misconfiguration)
