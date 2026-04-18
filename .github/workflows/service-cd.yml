@@ -89,13 +89,22 @@ jobs:
 
       - name: Remove stale SQS event source mappings (dev)
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-dev-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
@@ -135,13 +144,22 @@ jobs:
 
       - name: Remove stale SQS event source mappings (test)
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-test-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
@@ -181,13 +199,22 @@ jobs:
 
       - name: Remove stale SQS event source mappings (perf)
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-perf-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
@@ -227,13 +254,22 @@ jobs:
 
       - name: Remove stale SQS event source mappings (staging primary)
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-staging-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
@@ -256,13 +292,22 @@ jobs:
           AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-staging-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
@@ -305,13 +350,22 @@ jobs:
 
       - name: Remove stale SQS event source mappings (production primary)
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-production-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
@@ -334,13 +388,22 @@ jobs:
           AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: |
+          QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-production-handle_processor_queue \
+            --event-source-arn "$QUEUE_ARN" \
             --query 'EventSourceMappings[].UUID' \
             --output text)
           if [ -n "$UUIDS" ]; then
             for UUID in $UUIDS; do
               aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+              for _ in {1..30}; do
+                STATE=$(aws lambda get-event-source-mapping --uuid "$UUID" --query 'State' --output text 2>/dev/null || echo Deleted)
+                if [ "$STATE" = "Deleted" ]; then
+                  break
+                fi
+                sleep 2
+              done
             done
           fi
 
