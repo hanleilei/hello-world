@@ -79,6 +79,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure processor queue exists
+        run: aws sqs create-queue --queue-name processor >/dev/null
+
       - name: Deploy to dev
         run: chalice --project-dir src deploy --stage dev
 
@@ -104,6 +107,9 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure processor queue exists
+        run: aws sqs create-queue --queue-name processor >/dev/null
 
       - name: Deploy to test
         run: chalice --project-dir src deploy --stage test
@@ -131,6 +137,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure processor queue exists
+        run: aws sqs create-queue --queue-name processor >/dev/null
+
       - name: Deploy to perf
         run: chalice --project-dir src deploy --stage perf
 
@@ -157,8 +166,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure processor queue exists (primary region)
+        run: aws sqs create-queue --queue-name processor >/dev/null
+
       - name: Deploy to staging (primary region)
         run: chalice --project-dir src deploy --stage staging
+
+      - name: Ensure processor queue exists (secondary region)
+        env:
+          AWS_DEFAULT_REGION: us-west-2
+        run: aws sqs create-queue --queue-name processor >/dev/null
 
       - name: Deploy to staging (secondary region)
         env:
@@ -188,8 +205,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Ensure processor queue exists (primary region)
+        run: aws sqs create-queue --queue-name processor >/dev/null
+
       - name: Deploy to production (primary region)
         run: chalice --project-dir src deploy --stage production
+
+      - name: Ensure processor queue exists (secondary region)
+        env:
+          AWS_DEFAULT_REGION: us-west-2
+        run: aws sqs create-queue --queue-name processor >/dev/null
 
       - name: Deploy to production (secondary region)
         env:
