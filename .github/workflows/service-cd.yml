@@ -194,6 +194,7 @@ jobs:
 
       - name: Ensure processor queue exists (secondary region)
         env:
+          AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: |
           QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
@@ -204,6 +205,7 @@ jobs:
 
       - name: Deploy to staging (secondary region)
         env:
+          AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: chalice --project-dir src deploy --stage staging
 
@@ -243,6 +245,7 @@ jobs:
 
       - name: Ensure processor queue exists (secondary region)
         env:
+          AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: |
           QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
@@ -253,6 +256,7 @@ jobs:
 
       - name: Deploy to production (secondary region)
         env:
+          AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: chalice --project-dir src deploy --stage production
 # ─────────────────────────────────────────────────────────────────────────────
