@@ -89,6 +89,11 @@ jobs:
 
       - name: Remove stale SQS event source mappings (dev)
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-dev-handle_processor_queue \
@@ -144,6 +149,11 @@ jobs:
 
       - name: Remove stale SQS event source mappings (test)
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-test-handle_processor_queue \
@@ -199,6 +209,11 @@ jobs:
 
       - name: Remove stale SQS event source mappings (perf)
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-perf-handle_processor_queue \
@@ -254,6 +269,11 @@ jobs:
 
       - name: Remove stale SQS event source mappings (staging primary)
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-staging-handle_processor_queue \
@@ -292,6 +312,11 @@ jobs:
           AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-staging-handle_processor_queue \
@@ -350,6 +375,11 @@ jobs:
 
       - name: Remove stale SQS event source mappings (production primary)
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-production-handle_processor_queue \
@@ -388,6 +418,11 @@ jobs:
           AWS_REGION: us-west-2
           AWS_DEFAULT_REGION: us-west-2
         run: |
+          QUEUE_URL=$(aws sqs get-queue-url --queue-name processor --query QueueUrl --output text 2>/dev/null || true)
+          if [ -z "$QUEUE_URL" ] || [ "$QUEUE_URL" = "None" ]; then
+            echo "Queue processor not found; skip mapping cleanup"
+            exit 0
+          fi
           QUEUE_ARN=$(aws sqs get-queue-attributes --queue-url "$QUEUE_URL" --attribute-names QueueArn --query 'Attributes.QueueArn' --output text)
           UUIDS=$(aws lambda list-event-source-mappings \
             --function-name hello-world-production-handle_processor_queue \
