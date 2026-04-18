@@ -14,13 +14,12 @@
 name: Service CD
 
 on:
-  push:
+  # Only run after Service CI completes successfully on main.
+  # This ensures service-cd never deploys if tests / security scans failed.
+  workflow_run:
+    workflows: ["Service CI"]
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'requirements*.txt'
-      - 'pyproject.toml'
-      - '.github/workflows/service-cd.yml'
+    types: [completed]
 
 env:
   AWS_REGION: 'us-east-1'
@@ -42,8 +41,12 @@ jobs:
   test-and-package:
     name: Test & Package
     runs-on: ubuntu-latest
+    # Only proceed if the upstream Service CI run succeeded.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: actions/setup-python@v5
         with:

@@ -21,6 +21,16 @@ on:
       - 'requirements*.txt'
       - 'pyproject.toml'
       - '.github/workflows/service-*.yml'
+  # Also run on push to main so that service-cd can chain via workflow_run.
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Dockerfile*'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/service-*.yml'
 
 env:
   AWS_REGION: 'us-east-1'
