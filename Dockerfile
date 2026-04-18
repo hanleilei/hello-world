@@ -31,4 +31,4 @@ USER appuser
 EXPOSE 8000
 
 # `chalice local` acts as a lightweight Lambda + API-GW emulator.
-CMD ["chalice", "--project-dir", "src", "local", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["chalice", "--project-dir", "/app/src", "local", "--host", "0.0.0.0", "--port", "8000"]
