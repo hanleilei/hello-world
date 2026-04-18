@@ -12,15 +12,8 @@
 name: Service CI
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'Dockerfile*'
-      - 'requirements*.txt'
-      - 'pyproject.toml'
-  # Called by release.yml after infra-cd completes, enforcing full ordering.
+  # Triggered by pr-gate.yml (after infra-ci passes) and by release.yml.
+  # No direct pull_request trigger — ordering is enforced by pr-gate.
   workflow_call:
 
 env:
