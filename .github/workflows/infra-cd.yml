@@ -96,6 +96,7 @@ jobs:
     name: Apply / test
     runs-on: ubuntu-latest
     needs: apply-dev
+    if: ${{ false }}
     environment: test
     steps:
       - uses: actions/checkout@v4
@@ -143,6 +144,7 @@ jobs:
     name: Apply / perf
     runs-on: ubuntu-latest
     needs: apply-test
+    if: ${{ false }}
     environment: perf
     steps:
       - uses: actions/checkout@v4
@@ -190,6 +192,7 @@ jobs:
     name: Apply / staging
     runs-on: ubuntu-latest
     needs: apply-perf
+    if: ${{ false }}
     # GitHub pauses this job and waits for a reviewer to approve
     # before the runner is even provisioned.
     environment: staging
@@ -258,6 +261,7 @@ jobs:
     name: Apply / production
     runs-on: ubuntu-latest
     needs: apply-staging
+    if: ${{ false }}
     environment: production
     steps:
       - uses: actions/checkout@v4
