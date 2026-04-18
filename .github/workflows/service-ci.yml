@@ -20,7 +20,6 @@ on:
       - 'Dockerfile*'
       - 'requirements*.txt'
       - 'pyproject.toml'
-      - '.github/workflows/service-*.yml'
   # Called by release.yml after infra-cd completes, enforcing full ordering.
   workflow_call:
 
