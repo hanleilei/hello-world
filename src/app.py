@@ -45,7 +45,11 @@ def health():
 
 @app.route("/")
 def index():
-    return {"message": "hello-world", "env": os.environ.get("ENV", "dev")}
+    return {
+        "message": "hello-world",
+        "env": os.environ.get("ENV", "dev"),
+        "version": "1.1.0",
+    }
 
 
 @app.route("/items", methods=["GET"])
