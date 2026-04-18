@@ -9,6 +9,7 @@ RUN pip install --upgrade pip \
  && pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
 
 COPY src/ ./src/
+COPY tests/ ./tests/
 
 # ─── Runtime stage ─────────────────────────────────────────────────────────────
 # Minimal image; serves the app locally via `chalice local`.
