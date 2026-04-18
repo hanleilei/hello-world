@@ -131,10 +131,10 @@ jobs:
           bandit -r src/ -ll -ii
 
       # Dependency vulnerability scan
-      - name: Safety (dependency CVE check)
+      - name: pip-audit (dependency CVE check)
         run: |
-          pip install safety
-          safety scan --full-report
+          pip install pip-audit
+          pip-audit -r requirements.txt -r requirements-dev.txt
 
       # Container image scan (on Dockerfile)
       - name: Trivy (Dockerfile misconfiguration)
