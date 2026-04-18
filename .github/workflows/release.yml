@@ -1,0 +1,127 @@
+# Release — runs on every push to main and orchestrates the full deployment chain.
+#
+# Execution order (each stage only runs if the previous one succeeded):
+#   1. detect-changes   — identify which paths changed
+#   2. call-infra-ci    — terraform fmt/validate/plan/OPA  (only if infra changed)
+#   3. call-infra-cd    — terraform apply                  (only if infra-ci passed)
+#   4. call-service-ci  — lint/test/scan/package           (only if app changed AND
+#                                                            infra-cd passed OR was skipped)
+#   5. call-service-cd  — deploy Lambda                    (only if service-ci passed)
+#
+# This guarantees the ordering:
+#   infra-only   → infra-ci → infra-cd
+#   app-only     → service-ci → service-cd
+#   infra + app  → infra-ci → infra-cd → service-ci → service-cd
+#
+# Any failure stops the chain — downstream stages are automatically skipped.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Permissions needed across all called workflows:
+#   id-token: write   — OIDC federation → AWS (infra-cd, service-cd)
+#   pull-requests: write — plan comments in infra-ci (skipped on push, no-op here)
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+# Only one release at a time; never cancel in-flight (safer for infra).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # ── Detect what changed in this push ────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Paths
+    runs-on: ubuntu-latest
+    outputs:
+      infra: ${{ steps.filter.outputs.infra }}
+      app:   ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # need parent commit for diff
+
+      - name: Detect changed paths
+        id: filter
+        run: |
+          # Handle edge case of initial/shallow commits
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          else
+            CHANGED=$(git show --name-only --format="" HEAD)
+          fi
+
+          echo "--- Changed files ---"
+          echo "$CHANGED"
+
+          INFRA=false
+          APP=false
+
+          if echo "$CHANGED" | grep -qE '^(infra/|\.github/workflows/infra-|policies/)'; then
+            INFRA=true
+          fi
+          if echo "$CHANGED" | grep -qE '^(src/|tests/|Dockerfile|requirements|pyproject\.toml|\.github/workflows/service-)'; then
+            APP=true
+          fi
+
+          echo "infra=$INFRA" >> "$GITHUB_OUTPUT"
+          echo "app=$APP"     >> "$GITHUB_OUTPUT"
+          echo "Infra changed: $INFRA | App changed: $APP"
+
+  # ── Stage 1: Infra CI ────────────────────────────────────────────────────────
+  call-infra-ci:
+    name: Infra CI
+    needs: detect-changes
+    if: needs.detect-changes.outputs.infra == 'true'
+    uses: ./.github/workflows/infra-ci.yml
+    secrets: inherit
+
+  # ── Stage 2: Infra CD ────────────────────────────────────────────────────────
+  call-infra-cd:
+    name: Infra CD
+    needs: [detect-changes, call-infra-ci]
+    # always() lets us evaluate the condition even when call-infra-ci was skipped.
+    # We only proceed if infra changed AND infra-ci actually succeeded.
+    if: |
+      always() &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.infra == 'true' &&
+      needs.call-infra-ci.result == 'success'
+    uses: ./.github/workflows/infra-cd.yml
+    secrets: inherit
+
+  # ── Stage 3: Service CI ───────────────────────────────────────────────────────
+  call-service-ci:
+    name: Service CI
+    needs: [detect-changes, call-infra-cd]
+    # Run if app changed AND either:
+    #   a) infra also changed and infra-cd succeeded, OR
+    #   b) infra did NOT change (infra-cd was skipped for the right reason).
+    # This prevents service CI from running if infra-cd failed.
+    if: |
+      always() &&
+      needs.detect-changes.result == 'success' &&
+      needs.detect-changes.outputs.app == 'true' &&
+      (
+        needs.call-infra-cd.result == 'success' ||
+        (needs.call-infra-cd.result == 'skipped' && needs.detect-changes.outputs.infra == 'false')
+      )
+    uses: ./.github/workflows/service-ci.yml
+    secrets: inherit
+
+  # ── Stage 4: Service CD ───────────────────────────────────────────────────────
+  call-service-cd:
+    name: Service CD
+    needs: call-service-ci
+    if: needs.call-service-ci.result == 'success'
+    uses: ./.github/workflows/service-cd.yml
+    secrets: inherit
