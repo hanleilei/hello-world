@@ -175,6 +175,8 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
       - name: chalice package (dry-run for dev stage)
+        env:
+          AWS_DEFAULT_REGION: us-east-1
         run: chalice --project-dir src package --stage dev /tmp/chalice-pkg
 
       - name: Verify Lambda zip was created
