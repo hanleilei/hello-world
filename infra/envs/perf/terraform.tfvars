@@ -31,7 +31,7 @@ db_username = "admin"
 ecr_repo_name = "hello-world-perf"
 
 # Lambda
-lambda_function_name = "processor"
+sqs_queue_name = "processor"
 
 # Feature flags
 enable_load_balancer = false
@@ -39,3 +39,4 @@ enable_compute       = false
 enable_lambda        = false
 enable_rds           = false
 enable_ecr           = false
+enable_networking    = false

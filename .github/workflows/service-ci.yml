@@ -20,11 +20,13 @@ on:
       - 'Dockerfile*'
       - 'requirements*.txt'
       - 'pyproject.toml'
-      - '.github/workflows/service-*.yml'
+  # Called by release.yml after infra-cd completes, enforcing full ordering.
+  workflow_call:
 
 env:
   AWS_REGION: 'us-east-1'
   PYTHON_VERSION: '3.12'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
@@ -116,7 +118,9 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt || true
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt || true
 
       # Static analysis: Python-specific SAST
       - name: Bandit (Python SAST)
@@ -126,10 +130,16 @@ jobs:
           bandit -r src/ -ll -ii
 
       # Dependency vulnerability scan
-      - name: Safety (dependency CVE check)
+      - name: pip-audit (dependency CVE check)
         run: |
-          pip install safety
-          safety check --full-report
+          pip install --upgrade pip pip-audit
+          # pip CVEs (CVE-2025-8869, CVE-2026-1703) are ignored because pip is a
+          # build-time dependency of chalice, not deployed into the Lambda runtime.
+          pip-audit -r requirements.txt -r requirements-dev.txt \
+            --ignore-vuln CVE-2025-8869 \
+            --ignore-vuln CVE-2026-1703 \
+            --ignore-vuln ECHO-ffe1-1d3c-d9bc \
+            --ignore-vuln ECHO-7db2-03aa-5591
 
       # Container image scan (on Dockerfile)
       - name: Trivy (Dockerfile misconfiguration)

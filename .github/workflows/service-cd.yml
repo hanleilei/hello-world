@@ -1,10 +1,11 @@
 # Service CD — runs only after code lands on main.
 #
 # Release policy:
-#   1. GitHub Actions orchestrates the pipeline.
-#   2. Terraform decides whether an environment is allowed to host Lambda.
-#   3. This workflow must not create service resources directly.
-#   4. If Terraform has enable_lambda=false, deployment is skipped.
+#   1. Build and test the Chalice application package.
+#   2. Terraform release gate reads enable_lambda from terraform.tfvars.
+#   3. If enabled for dev, run "terraform apply" passing the deployment zip.
+#   4. Terraform's null_resource calls "aws lambda update-function-code" so
+#      the pipeline never creates AWS resources directly — only Terraform does.
 #
 # Branch protection note:
 #   Enforcing "main only changes through PRs" must be configured in GitHub
@@ -13,18 +14,15 @@
 name: Service CD
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'requirements*.txt'
-      - 'pyproject.toml'
-      - '.github/workflows/service-cd.yml'
+  # Called by release.yml after service-ci succeeds, ensuring CI always gates CD.
+  workflow_call:
 
 env:
   AWS_REGION: 'us-east-1'
   AWS_DEFAULT_REGION: 'us-east-1'
   PYTHON_VERSION: '3.12'
+  TF_VERSION: '1.10.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
   contents: read
@@ -35,8 +33,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate Package
+  # ─── Stage 1: Test & package ──────────────────────────────────────────────────
+  test-and-package:
+    name: Test & Package
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +51,7 @@ jobs:
       - name: Run unit tests
         run: pytest tests/unit/ --cov=src --cov-fail-under=70 -q
 
-      - name: Build Chalice artifact (no deploy)
+      - name: Build Chalice artifact
         run: chalice --project-dir src package --stage dev /tmp/chalice-pkg
 
       - name: Upload packaged artifact
@@ -62,17 +61,13 @@ jobs:
           path: /tmp/chalice-pkg
           retention-days: 7
 
+  # ─── Stage 2: Terraform release gate ─────────────────────────────────────────
   terraform-release-gate:
     name: Terraform Release Gate
     runs-on: ubuntu-latest
-    needs: validate
+    needs: test-and-package
     outputs:
       dev_enabled: ${{ steps.flags.outputs.dev_enabled }}
-      test_enabled: ${{ steps.flags.outputs.test_enabled }}
-      perf_enabled: ${{ steps.flags.outputs.perf_enabled }}
-      staging_enabled: ${{ steps.flags.outputs.staging_enabled }}
-      production_enabled: ${{ steps.flags.outputs.production_enabled }}
-      any_enabled: ${{ steps.flags.outputs.any_enabled }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,68 +75,115 @@ jobs:
         id: flags
         shell: bash
         run: |
+          # Read a boolean flag from a tfvars file.
+          # Usage: read_flag <file> <flag_name>
           read_flag() {
-            local file="$1"
+            local file="$1" flag="$2"
             local value
-            value=$(awk -F= '/^[[:space:]]*enable_lambda[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print tolower($2); exit}' "$file")
-            if [[ -z "$value" ]]; then
-              value="false"
-            fi
-            echo "$value"
+            value=$(awk -F= -v flag="$flag" \
+              '$0 ~ "^[[:space:]]*" flag "[[:space:]]*=" {gsub(/[[:space:]]/, "", $2); print tolower($2); exit}' "$file")
+            echo "${value:-false}"
           }
 
-          DEV_ENABLED=$(read_flag infra/envs/dev/terraform.tfvars)
-          TEST_ENABLED=$(read_flag infra/envs/test/terraform.tfvars)
-          PERF_ENABLED=$(read_flag infra/envs/perf/terraform.tfvars)
-          STAGING_ENABLED=$(read_flag infra/envs/staging/terraform.tfvars)
-          PRODUCTION_ENABLED=$(read_flag infra/envs/production/terraform.tfvars)
-
-          ANY_ENABLED=false
-          for flag in "$DEV_ENABLED" "$TEST_ENABLED" "$PERF_ENABLED" "$STAGING_ENABLED" "$PRODUCTION_ENABLED"; do
-            if [[ "$flag" == "true" ]]; then
-              ANY_ENABLED=true
-              break
-            fi
-          done
-
-          echo "dev_enabled=$DEV_ENABLED" >> "$GITHUB_OUTPUT"
-          echo "test_enabled=$TEST_ENABLED" >> "$GITHUB_OUTPUT"
-          echo "perf_enabled=$PERF_ENABLED" >> "$GITHUB_OUTPUT"
-          echo "staging_enabled=$STAGING_ENABLED" >> "$GITHUB_OUTPUT"
-          echo "production_enabled=$PRODUCTION_ENABLED" >> "$GITHUB_OUTPUT"
-          echo "any_enabled=$ANY_ENABLED" >> "$GITHUB_OUTPUT"
+          DEV_LAMBDA=$(read_flag infra/envs/dev/terraform.tfvars enable_lambda)
+          DEV_ECR=$(read_flag infra/envs/dev/terraform.tfvars enable_ecr)
+          # Non-dev release pipelines are intentionally disabled.
+          echo "dev_enabled=$DEV_LAMBDA" >> "$GITHUB_OUTPUT"
+          echo "ecr_enabled=$DEV_ECR"    >> "$GITHUB_OUTPUT"
 
       - name: Print gate summary
         run: |
-          echo "dev:        ${{ steps.flags.outputs.dev_enabled }}"
-          echo "test:       ${{ steps.flags.outputs.test_enabled }}"
-          echo "perf:       ${{ steps.flags.outputs.perf_enabled }}"
-          echo "staging:    ${{ steps.flags.outputs.staging_enabled }}"
-          echo "production: ${{ steps.flags.outputs.production_enabled }}"
+          echo "dev lambda: ${{ steps.flags.outputs.dev_enabled }}"
+          echo "dev ecr:    ${{ steps.flags.outputs.ecr_enabled }}"
+          echo "test/perf/staging/production: false (intentionally disabled)"
 
-  no-deploy-when-disabled:
-    name: Skip When Terraform Disables Lambda
+  # ─── Stage 3a: Build & push Docker image to ECR ──────────────────────────────
+  build-and-push-ecr:
+    name: Build & Push — ECR (dev)
     runs-on: ubuntu-latest
     needs: terraform-release-gate
-    if: ${{ needs.terraform-release-gate.outputs.any_enabled == 'false' }}
+    if: ${{ needs.terraform-release-gate.outputs.ecr_enabled == 'true' }}
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: hello-world
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            --tag "$REGISTRY/$REPOSITORY:$IMAGE_TAG" \
+            --tag "$REGISTRY/$REPOSITORY:latest" \
+            .
+          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$REPOSITORY:latest"
+
+  # ─── Stage 3b: Deploy Lambda to dev ──────────────────────────────────────────
+  deploy-dev:
+    name: Deploy — dev
+    runs-on: ubuntu-latest
+    needs: terraform-release-gate
+    if: ${{ needs.terraform-release-gate.outputs.dev_enabled == 'true' }}
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download packaged artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: service-package-dev
+          path: /tmp/chalice-pkg
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_CD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: infra/envs/dev
+        run: terraform init -input=false
+
+      - name: Terraform Apply — deploy Lambda code
+        working-directory: infra/envs/dev
+        run: |
+          terraform apply \
+            -var-file=terraform.tfvars \
+            -var "deployment_package_path=/tmp/chalice-pkg/deployment.zip" \
+            -auto-approve \
+            -input=false \
+            -lock-timeout=300s
+
+  # ─── Stage 3b: Skip when disabled ────────────────────────────────────────────
+  no-deploy-when-disabled:
+    name: Skip — Lambda disabled
+    runs-on: ubuntu-latest
+    needs: terraform-release-gate
+    if: ${{ needs.terraform-release-gate.outputs.dev_enabled == 'false' }}
     steps:
       - name: Explain skip
         run: |
-          echo "Terraform has enable_lambda=false in all service environments."
-          echo "Per release policy, this workflow will not publish any Lambda or API Gateway resources."
-          echo "GitHub Actions validated and packaged the app only."
-
-  terraform-managed-deploy-not-implemented:
-    name: Block Unsupported Direct Publish
-    runs-on: ubuntu-latest
-    needs: terraform-release-gate
-    if: ${{ needs.terraform-release-gate.outputs.any_enabled == 'true' }}
-    steps:
-      - name: Stop direct resource creation
-        run: |
-          echo "Terraform has at least one environment with enable_lambda=true."
-          echo "Direct Chalice resource publishing has been intentionally disabled."
-          echo "Implement a Terraform-managed service deployment path before enabling release here."
-          exit 1
+          echo "enable_lambda=false in infra/envs/dev/terraform.tfvars."
+          echo "No Lambda resources will be deployed."
+          echo "Set enable_lambda=true and re-merge to enable deployment."
 
 

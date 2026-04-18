@@ -1,6 +1,7 @@
 # ─── Networking ───────────────────────────────────────────────────────────────
 
 module "networking" {
+  count  = var.enable_networking ? 1 : 0
   source = "../../modules/networking"
 
   project              = var.project
@@ -20,8 +21,8 @@ module "load_balancer" {
 
   project           = var.project
   env               = var.env
-  vpc_id            = module.networking.vpc_id
-  public_subnet_ids = module.networking.public_subnet_ids
+  vpc_id            = try(module.networking[0].vpc_id, "")
+  public_subnet_ids = try(module.networking[0].public_subnet_ids, [])
   target_port       = var.app_port
 }
 
@@ -33,8 +34,8 @@ module "compute" {
 
   project               = var.project
   env                   = var.env
-  vpc_id                = module.networking.vpc_id
-  subnet_ids            = module.networking.private_subnet_ids
+  vpc_id                = try(module.networking[0].vpc_id, "")
+  subnet_ids            = try(module.networking[0].private_subnet_ids, [])
   instance_type         = var.instance_type
   app_port              = var.app_port
   alb_security_group_id = var.enable_load_balancer ? module.load_balancer[0].security_group_id : ""
@@ -44,15 +45,53 @@ module "compute" {
   desired_capacity      = 1
 }
 
+# ─── DynamoDB ───────────────────────────────────────────────────────────────────
+
+resource "aws_dynamodb_table" "items" {
+  count        = var.enable_lambda ? 1 : 0
+  name         = "${var.project}-items-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "${var.project}-items-${var.env}"
+  }
+}
+
+# ─── SQS ───────────────────────────────────────────────────────────────────
+
+resource "aws_sqs_queue" "processor" {
+  count                   = var.enable_lambda ? 1 : 0
+  name                    = var.sqs_queue_name
+  sqs_managed_sse_enabled = true
+
+  tags = {
+    Name = var.sqs_queue_name
+  }
+}
+
 # ─── Lambda ───────────────────────────────────────────────────────────────────
 
 module "lambda" {
   count  = var.enable_lambda ? 1 : 0
   source = "../../modules/lambda"
 
-  project       = var.project
-  env           = var.env
-  function_name = var.lambda_function_name
+  project = var.project
+  env     = var.env
+
+  environment_variables = {
+    ENV        = var.env
+    TABLE_NAME = aws_dynamodb_table.items[0].name
+  }
+
+  dynamodb_table_arn      = aws_dynamodb_table.items[0].arn
+  sqs_queue_arn           = aws_sqs_queue.processor[0].arn
+  deployment_package_path = var.deployment_package_path
 }
 
 # ─── RDS (PostgreSQL) ─────────────────────────────────────────────────────────
@@ -63,8 +102,8 @@ module "rds" {
 
   project    = var.project
   env        = var.env
-  vpc_id     = module.networking.vpc_id
-  subnet_ids = module.networking.private_subnet_ids
+  vpc_id     = try(module.networking[0].vpc_id, "")
+  subnet_ids = try(module.networking[0].private_subnet_ids, [])
   db_name    = var.db_name
   username   = var.db_username
 

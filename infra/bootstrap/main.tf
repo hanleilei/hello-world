@@ -24,6 +24,19 @@ provider "aws" {
   region = "us-east-1"
 }
 
+# ─── KMS key for Terraform state bucket ──────────────────────────────────────
+
+resource "aws_kms_key" "terraform_state" {
+  description             = "CMK for Terraform state S3 bucket (AWS-0132)"
+  deletion_window_in_days = 10
+  enable_key_rotation     = true
+}
+
+resource "aws_kms_alias" "terraform_state" {
+  name          = "alias/terraform-state"
+  target_key_id = aws_kms_key.terraform_state.key_id
+}
+
 # ─── Access-log bucket (must exist before the state bucket) ──────────────────
 
 resource "aws_s3_bucket" "state_access_logs" {
@@ -141,7 +154,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" 
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "aws:kms"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.terraform_state.arn
     }
     bucket_key_enabled = true
   }
