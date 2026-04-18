@@ -122,6 +122,6 @@ jobs:
   call-service-cd:
     name: Service CD
     needs: call-service-ci
-    if: needs.call-service-ci.result == 'success'
+    if: always() && needs.call-service-ci.result == 'success'
     uses: ./.github/workflows/service-cd.yml
     secrets: inherit
