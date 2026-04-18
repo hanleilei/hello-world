@@ -5,6 +5,7 @@
 # ─── Networking ───────────────────────────────────────────────────────────────
 
 module "networking_primary" {
+  count  = var.enable_networking ? 1 : 0
   source = "../../modules/networking"
   providers = {
     aws = aws.primary
@@ -20,6 +21,7 @@ module "networking_primary" {
 }
 
 module "networking_secondary" {
+  count  = var.enable_networking ? 1 : 0
   source = "../../modules/networking"
   providers = {
     aws = aws.secondary
@@ -45,8 +47,8 @@ module "load_balancer_primary" {
 
   project           = var.project
   env               = "${var.env}-primary"
-  vpc_id            = module.networking_primary.vpc_id
-  public_subnet_ids = module.networking_primary.public_subnet_ids
+  vpc_id            = try(module.networking_primary[0].vpc_id, "")
+  public_subnet_ids = try(module.networking_primary[0].public_subnet_ids, [])
   target_port       = var.app_port
 }
 
@@ -59,8 +61,8 @@ module "load_balancer_secondary" {
 
   project           = var.project
   env               = "${var.env}-secondary"
-  vpc_id            = module.networking_secondary.vpc_id
-  public_subnet_ids = module.networking_secondary.public_subnet_ids
+  vpc_id            = try(module.networking_secondary[0].vpc_id, "")
+  public_subnet_ids = try(module.networking_secondary[0].public_subnet_ids, [])
   target_port       = var.app_port
 }
 
@@ -75,8 +77,8 @@ module "compute_primary" {
 
   project               = var.project
   env                   = "${var.env}-primary"
-  vpc_id                = module.networking_primary.vpc_id
-  subnet_ids            = module.networking_primary.private_subnet_ids
+  vpc_id                = try(module.networking_primary[0].vpc_id, "")
+  subnet_ids            = try(module.networking_primary[0].private_subnet_ids, [])
   instance_type         = var.instance_type
   app_port              = var.app_port
   alb_security_group_id = var.enable_load_balancer ? module.load_balancer_primary[0].security_group_id : ""
@@ -95,8 +97,8 @@ module "compute_secondary" {
 
   project               = var.project
   env                   = "${var.env}-secondary"
-  vpc_id                = module.networking_secondary.vpc_id
-  subnet_ids            = module.networking_secondary.private_subnet_ids
+  vpc_id                = try(module.networking_secondary[0].vpc_id, "")
+  subnet_ids            = try(module.networking_secondary[0].private_subnet_ids, [])
   instance_type         = var.instance_type
   app_port              = var.app_port
   alb_security_group_id = var.enable_load_balancer ? module.load_balancer_secondary[0].security_group_id : ""
@@ -104,6 +106,66 @@ module "compute_secondary" {
   min_size              = 1
   max_size              = 3
   desired_capacity      = 2
+}
+
+# ─── DynamoDB ───────────────────────────────────────────────────────────────────
+
+resource "aws_dynamodb_table" "items_primary" {
+  count        = var.enable_lambda ? 1 : 0
+  provider     = aws.primary
+  name         = "${var.project}-items-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "${var.project}-items-${var.env}-primary"
+  }
+}
+
+resource "aws_dynamodb_table" "items_secondary" {
+  count        = var.enable_lambda ? 1 : 0
+  provider     = aws.secondary
+  name         = "${var.project}-items-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "${var.project}-items-${var.env}-secondary"
+  }
+}
+
+# ─── SQS ───────────────────────────────────────────────────────────────────
+
+resource "aws_sqs_queue" "processor_primary" {
+  count                   = var.enable_lambda ? 1 : 0
+  provider                = aws.primary
+  name                    = var.sqs_queue_name
+  sqs_managed_sse_enabled = true
+
+  tags = {
+    Name = var.sqs_queue_name
+  }
+}
+
+resource "aws_sqs_queue" "processor_secondary" {
+  count                   = var.enable_lambda ? 1 : 0
+  provider                = aws.secondary
+  name                    = var.sqs_queue_name
+  sqs_managed_sse_enabled = true
+
+  tags = {
+    Name = var.sqs_queue_name
+  }
 }
 
 # ─── Lambda ───────────────────────────────────────────────────────────────────
@@ -115,9 +177,17 @@ module "lambda_primary" {
     aws = aws.primary
   }
 
-  project       = var.project
-  env           = "${var.env}-primary"
-  function_name = var.lambda_function_name
+  project = var.project
+  env     = "${var.env}-primary"
+
+  environment_variables = {
+    ENV        = var.env
+    TABLE_NAME = aws_dynamodb_table.items_primary[0].name
+  }
+
+  dynamodb_table_arn      = aws_dynamodb_table.items_primary[0].arn
+  sqs_queue_arn           = aws_sqs_queue.processor_primary[0].arn
+  deployment_package_path = var.deployment_package_path
 }
 
 module "lambda_secondary" {
@@ -127,9 +197,17 @@ module "lambda_secondary" {
     aws = aws.secondary
   }
 
-  project       = var.project
-  env           = "${var.env}-secondary"
-  function_name = var.lambda_function_name
+  project = var.project
+  env     = "${var.env}-secondary"
+
+  environment_variables = {
+    ENV        = var.env
+    TABLE_NAME = aws_dynamodb_table.items_secondary[0].name
+  }
+
+  dynamodb_table_arn      = aws_dynamodb_table.items_secondary[0].arn
+  sqs_queue_arn           = aws_sqs_queue.processor_secondary[0].arn
+  deployment_package_path = var.deployment_package_path
 }
 
 # ─── RDS (PostgreSQL, primary only) ──────────────────────────────────────────
@@ -143,8 +221,8 @@ module "rds" {
 
   project    = var.project
   env        = var.env
-  vpc_id     = module.networking_primary.vpc_id
-  subnet_ids = module.networking_primary.private_subnet_ids
+  vpc_id     = try(module.networking_primary[0].vpc_id, "")
+  subnet_ids = try(module.networking_primary[0].private_subnet_ids, [])
   db_name    = var.db_name
   username   = var.db_username
 

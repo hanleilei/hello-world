@@ -78,10 +78,16 @@ variable "ecr_repo_name" {
 
 # ─── Lambda ───────────────────────────────────────────────────────────────────
 
-variable "lambda_function_name" {
-  description = "Logical name of the Lambda function (appended to project-env prefix)."
+variable "sqs_queue_name" {
+  description = "Name of the SQS queue for async processing."
   type        = string
   default     = "processor"
+}
+
+variable "deployment_package_path" {
+  description = "Local path to the Chalice deployment ZIP. Set by service-cd pipeline; leave empty for infra-only runs."
+  type        = string
+  default     = ""
 }
 
 # ─── Feature flags ────────────────────────────────────────────────────────────
@@ -112,6 +118,12 @@ variable "enable_rds" {
 
 variable "enable_ecr" {
   description = "Create the ECR repository."
+  type        = bool
+  default     = false
+}
+
+variable "enable_networking" {
+  description = "Create the VPC, subnets, and NAT gateway."
   type        = bool
   default     = false
 }

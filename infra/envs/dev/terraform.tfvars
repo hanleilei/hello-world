@@ -21,11 +21,12 @@ db_username = "admin"
 ecr_repo_name = "hello-world"
 
 # Lambda
-lambda_function_name = "processor"
+sqs_queue_name = "processor"
 
 # Feature flags
 enable_load_balancer = true
 enable_compute       = true
-enable_lambda        = false
+enable_lambda        = true
 enable_rds           = false
-enable_ecr           = false
+enable_ecr           = true
+enable_networking    = true
