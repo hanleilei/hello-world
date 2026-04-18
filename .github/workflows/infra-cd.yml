@@ -239,10 +239,10 @@ jobs:
         working-directory: infra/envs/staging
         run: |
           conftest test tfplan.json \
-            --policy ../../policies/terraform/ \
+            --policy ../../../policies/terraform/ \
             --namespace terraform.secrets
           conftest test tfplan.json \
-            --policy ../../policies/terraform/ \
+            --policy ../../../policies/terraform/ \
             --namespace terraform.security_baseline
       - name: Terraform Apply
         working-directory: infra/envs/staging
@@ -305,10 +305,10 @@ jobs:
         working-directory: infra/envs/production
         run: |
           conftest test tfplan.json \
-            --policy ../../policies/terraform/ \
+            --policy ../../../policies/terraform/ \
             --namespace terraform.secrets
           conftest test tfplan.json \
-            --policy ../../policies/terraform/ \
+            --policy ../../../policies/terraform/ \
             --namespace terraform.security_baseline
       - name: Terraform Apply
         working-directory: infra/envs/production
