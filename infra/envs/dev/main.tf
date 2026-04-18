@@ -65,7 +65,8 @@ resource "aws_dynamodb_table" "items" {
 # ─── SQS ──────────────────────────────────────────────────────────────────────
 
 resource "aws_sqs_queue" "processor" {
-  name = var.sqs_queue_name
+  name                    = var.sqs_queue_name
+  sqs_managed_sse_enabled = true
 
   tags = {
     Name = var.sqs_queue_name

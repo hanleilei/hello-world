@@ -146,9 +146,10 @@ resource "aws_dynamodb_table" "items_secondary" {
 # ─── SQS ──────────────────────────────────────────────────────────────────────
 
 resource "aws_sqs_queue" "processor_primary" {
-  count    = var.enable_lambda ? 1 : 0
-  provider = aws.primary
-  name     = var.sqs_queue_name
+  count                   = var.enable_lambda ? 1 : 0
+  provider                = aws.primary
+  name                    = var.sqs_queue_name
+  sqs_managed_sse_enabled = true
 
   tags = {
     Name = var.sqs_queue_name
@@ -156,9 +157,10 @@ resource "aws_sqs_queue" "processor_primary" {
 }
 
 resource "aws_sqs_queue" "processor_secondary" {
-  count    = var.enable_lambda ? 1 : 0
-  provider = aws.secondary
-  name     = var.sqs_queue_name
+  count                   = var.enable_lambda ? 1 : 0
+  provider                = aws.secondary
+  name                    = var.sqs_queue_name
+  sqs_managed_sse_enabled = true
 
   tags = {
     Name = var.sqs_queue_name
