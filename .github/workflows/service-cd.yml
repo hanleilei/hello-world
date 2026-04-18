@@ -184,7 +184,7 @@ jobs:
           set -euo pipefail
           BASE="${{ steps.tf_output.outputs.endpoint }}"
           echo "Testing $BASE/health ..."
-          resp=$(curl -sf --retry 3 --retry-delay 5 "$BASE/health")
+          resp=$(curl -s --fail-with-body --retry 5 --retry-delay 5 --retry-all-errors "$BASE/health")
           echo "$resp"
           echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok', f'unexpected: {d}'"
           echo "Smoke test passed."
