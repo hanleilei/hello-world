@@ -87,6 +87,18 @@ jobs:
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
 
+      - name: Remove stale SQS event source mappings (dev)
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-dev-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
+
       - name: Deploy to dev
         run: chalice --project-dir src deploy --stage dev
 
@@ -120,6 +132,18 @@ jobs:
             QUEUE_URL=$(aws sqs create-queue --queue-name processor --attributes VisibilityTimeout=120 --query QueueUrl --output text)
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
+
+      - name: Remove stale SQS event source mappings (test)
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-test-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
 
       - name: Deploy to test
         run: chalice --project-dir src deploy --stage test
@@ -155,6 +179,18 @@ jobs:
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
 
+      - name: Remove stale SQS event source mappings (perf)
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-perf-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
+
       - name: Deploy to perf
         run: chalice --project-dir src deploy --stage perf
 
@@ -189,6 +225,18 @@ jobs:
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
 
+      - name: Remove stale SQS event source mappings (staging primary)
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-staging-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
+
       - name: Deploy to staging (primary region)
         run: chalice --project-dir src deploy --stage staging
 
@@ -202,6 +250,21 @@ jobs:
             QUEUE_URL=$(aws sqs create-queue --queue-name processor --attributes VisibilityTimeout=120 --query QueueUrl --output text)
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
+
+      - name: Remove stale SQS event source mappings (staging secondary)
+        env:
+          AWS_REGION: us-west-2
+          AWS_DEFAULT_REGION: us-west-2
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-staging-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
 
       - name: Deploy to staging (secondary region)
         env:
@@ -240,6 +303,18 @@ jobs:
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
 
+      - name: Remove stale SQS event source mappings (production primary)
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-production-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
+
       - name: Deploy to production (primary region)
         run: chalice --project-dir src deploy --stage production
 
@@ -253,6 +328,21 @@ jobs:
             QUEUE_URL=$(aws sqs create-queue --queue-name processor --attributes VisibilityTimeout=120 --query QueueUrl --output text)
           fi
           aws sqs set-queue-attributes --queue-url "$QUEUE_URL" --attributes VisibilityTimeout=120
+
+      - name: Remove stale SQS event source mappings (production secondary)
+        env:
+          AWS_REGION: us-west-2
+          AWS_DEFAULT_REGION: us-west-2
+        run: |
+          UUIDS=$(aws lambda list-event-source-mappings \
+            --function-name hello-world-production-handle_processor_queue \
+            --query 'EventSourceMappings[].UUID' \
+            --output text)
+          if [ -n "$UUIDS" ]; then
+            for UUID in $UUIDS; do
+              aws lambda delete-event-source-mapping --uuid "$UUID" >/dev/null
+            done
+          fi
 
       - name: Deploy to production (secondary region)
         env:
