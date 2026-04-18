@@ -76,11 +76,15 @@ data "aws_iam_policy_document" "github_ci_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Restrict to pull_request events only — no branch push can use this role.
+    # Allow pull_request events AND workflow_call from main (called by release.yml).
+    # StringLike is required because the sub for push events includes the full ref path.
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["${local.oidc_subject_base}:pull_request"]
+      values = [
+        "${local.oidc_subject_base}:pull_request",
+        "${local.oidc_subject_base}:ref:refs/heads/main",
+      ]
     }
   }
 }
