@@ -175,6 +175,23 @@ jobs:
             -input=false \
             -lock-timeout=300s
 
+      - name: Get API endpoint
+        id: tf_output
+        working-directory: infra/envs/dev
+        run: |
+          endpoint=$(terraform output -raw api_endpoint_url)
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test — deployed Lambda
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.tf_output.outputs.endpoint }}"
+          echo "Testing $BASE/health ..."
+          resp=$(curl -sf --retry 3 --retry-delay 5 "$BASE/health")
+          echo "$resp"
+          echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok', f'unexpected: {d}'"
+          echo "Smoke test passed."
+
   # ─── Stage 3b: Skip when disabled ────────────────────────────────────────────
   no-deploy-when-disabled:
     name: Skip — Lambda disabled

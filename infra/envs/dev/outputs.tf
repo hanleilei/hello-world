@@ -1,3 +1,8 @@
+output "api_endpoint_url" {
+  description = "API Gateway base invoke URL for the Lambda API handler."
+  value       = var.enable_lambda ? module.lambda[0].api_endpoint_url : null
+}
+
 output "alb_dns_name" {
   description = "ALB DNS name — application entry point."
   value       = var.enable_load_balancer ? module.load_balancer[0].alb_dns_name : null
