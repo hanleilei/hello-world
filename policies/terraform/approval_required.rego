@@ -18,8 +18,7 @@
 
 package terraform.approval
 
-import future.keywords.contains
-import future.keywords.if
+import rego.v1
 
 # Environments that require human approval before any deployment.
 # Approval is enforced by GitHub Environment protection rules (required reviewers).

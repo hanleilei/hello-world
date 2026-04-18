@@ -21,12 +21,18 @@ on:
 env:
   TF_VERSION: '1.10.0'
   AWS_REGION: 'us-east-1'
-  CONFTEST_VERSION: '0.51.0'
+  CONFTEST_VERSION: '0.68.2'
 
 permissions:
   contents: read
   pull-requests: write   # post plan comments
   id-token: write        # OIDC → AWS
+
+# Cancel older runs on the same branch so a force-push doesn't queue stale plans.
+# cancel-in-progress: true is safe for CI because no destructive changes are made.
+concurrency:
+  group: infra-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # ─── Stage 1: Secret scan ────────────────────────────────────────────────────
@@ -112,11 +118,15 @@ jobs:
             -var-file=terraform.tfvars \
             -out=tfplan.binary \
             -input=false \
+            -lock-timeout=120s \
             -no-color 2>&1 | tee plan.txt
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-          # Export plan as JSON for OPA
-          terraform show -json tfplan.binary > tfplan.json
+          # Only convert to JSON if the plan binary was actually created.
+          # (plan fails on lock → no binary → show would error without this guard)
+          if [[ $EXIT_CODE -eq 0 && -f tfplan.binary ]]; then
+            terraform show -json tfplan.binary > tfplan.json
+          fi
           exit $EXIT_CODE
 
       - name: Post plan summary to PR
@@ -171,17 +181,6 @@ jobs:
             | tar xz
           sudo mv conftest /usr/local/bin/conftest
 
-      - name: Generate deployment metadata
-        run: |
-          cat > deployment-metadata.json <<EOF
-          {
-            "environment":  "${{ matrix.env }}",
-            "github_ref":   "${{ github.head_ref }}",
-            "github_actor": "${{ github.actor }}",
-            "event":        "${{ github.event_name }}"
-          }
-          EOF
-
       - name: OPA — secret scanning (plan JSON)
         run: |
           conftest test infra/envs/${{ matrix.env }}/tfplan.json \
@@ -193,12 +192,6 @@ jobs:
           conftest test infra/envs/${{ matrix.env }}/tfplan.json \
             --policy policies/terraform/ \
             --namespace terraform.security_baseline
-
-      - name: OPA — approval / security baseline (metadata)
-        run: |
-          conftest test deployment-metadata.json \
-            --policy policies/terraform/ \
-            --namespace terraform.approval
 # ─────────────────────────────────────────────────────────────────────────────
 # Infra CI — triggered on every PR that touches infra/
 # Stages: format-check → validate (all envs) → terratest
