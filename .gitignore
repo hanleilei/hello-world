@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Terraform plan artifacts (generated in CI — never commit)
+tfplan.binary
+tfplan.json
+
+# Local env
+.env
+*.tfvars.local
