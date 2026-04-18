@@ -47,6 +47,7 @@ module "compute" {
 # ─── DynamoDB ───────────────────────────────────────────────────────────────────
 
 resource "aws_dynamodb_table" "items" {
+  count        = var.enable_lambda ? 1 : 0
   name         = "${var.project}-items-${var.env}"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "id"
@@ -64,7 +65,8 @@ resource "aws_dynamodb_table" "items" {
 # ─── SQS ───────────────────────────────────────────────────────────────────
 
 resource "aws_sqs_queue" "processor" {
-  name = var.sqs_queue_name
+  count = var.enable_lambda ? 1 : 0
+  name  = var.sqs_queue_name
 
   tags = {
     Name = var.sqs_queue_name
@@ -82,11 +84,11 @@ module "lambda" {
 
   environment_variables = {
     ENV        = var.env
-    TABLE_NAME = aws_dynamodb_table.items.name
+    TABLE_NAME = aws_dynamodb_table.items[0].name
   }
 
-  dynamodb_table_arn      = aws_dynamodb_table.items.arn
-  sqs_queue_arn           = aws_sqs_queue.processor.arn
+  dynamodb_table_arn      = aws_dynamodb_table.items[0].arn
+  sqs_queue_arn           = aws_sqs_queue.processor[0].arn
   deployment_package_path = var.deployment_package_path
 }
 

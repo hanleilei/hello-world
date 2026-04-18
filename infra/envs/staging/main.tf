@@ -109,6 +109,7 @@ module "compute_secondary" {
 # ─── DynamoDB ───────────────────────────────────────────────────────────────────
 
 resource "aws_dynamodb_table" "items_primary" {
+  count        = var.enable_lambda ? 1 : 0
   provider     = aws.primary
   name         = "${var.project}-items-${var.env}"
   billing_mode = "PAY_PER_REQUEST"
@@ -125,6 +126,7 @@ resource "aws_dynamodb_table" "items_primary" {
 }
 
 resource "aws_dynamodb_table" "items_secondary" {
+  count        = var.enable_lambda ? 1 : 0
   provider     = aws.secondary
   name         = "${var.project}-items-${var.env}"
   billing_mode = "PAY_PER_REQUEST"
@@ -143,6 +145,7 @@ resource "aws_dynamodb_table" "items_secondary" {
 # ─── SQS ───────────────────────────────────────────────────────────────────
 
 resource "aws_sqs_queue" "processor_primary" {
+  count    = var.enable_lambda ? 1 : 0
   provider = aws.primary
   name     = var.sqs_queue_name
 
@@ -152,6 +155,7 @@ resource "aws_sqs_queue" "processor_primary" {
 }
 
 resource "aws_sqs_queue" "processor_secondary" {
+  count    = var.enable_lambda ? 1 : 0
   provider = aws.secondary
   name     = var.sqs_queue_name
 
@@ -174,11 +178,11 @@ module "lambda_primary" {
 
   environment_variables = {
     ENV        = var.env
-    TABLE_NAME = aws_dynamodb_table.items_primary.name
+    TABLE_NAME = aws_dynamodb_table.items_primary[0].name
   }
 
-  dynamodb_table_arn      = aws_dynamodb_table.items_primary.arn
-  sqs_queue_arn           = aws_sqs_queue.processor_primary.arn
+  dynamodb_table_arn      = aws_dynamodb_table.items_primary[0].arn
+  sqs_queue_arn           = aws_sqs_queue.processor_primary[0].arn
   deployment_package_path = var.deployment_package_path
 }
 
@@ -194,11 +198,11 @@ module "lambda_secondary" {
 
   environment_variables = {
     ENV        = var.env
-    TABLE_NAME = aws_dynamodb_table.items_secondary.name
+    TABLE_NAME = aws_dynamodb_table.items_secondary[0].name
   }
 
-  dynamodb_table_arn      = aws_dynamodb_table.items_secondary.arn
-  sqs_queue_arn           = aws_sqs_queue.processor_secondary.arn
+  dynamodb_table_arn      = aws_dynamodb_table.items_secondary[0].arn
+  sqs_queue_arn           = aws_sqs_queue.processor_secondary[0].arn
   deployment_package_path = var.deployment_package_path
 }
 
