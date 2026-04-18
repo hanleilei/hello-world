@@ -21,7 +21,7 @@ db_username = "admin"
 ecr_repo_name = "hello-world-test"
 
 # Lambda
-lambda_function_name = "processor"
+sqs_queue_name = "processor"
 
 # Feature flags
 enable_load_balancer = false

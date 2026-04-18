@@ -106,6 +106,60 @@ module "compute_secondary" {
   desired_capacity      = 2
 }
 
+# ─── DynamoDB ───────────────────────────────────────────────────────────────────
+
+resource "aws_dynamodb_table" "items_primary" {
+  provider     = aws.primary
+  name         = "${var.project}-items-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "${var.project}-items-${var.env}-primary"
+  }
+}
+
+resource "aws_dynamodb_table" "items_secondary" {
+  provider     = aws.secondary
+  name         = "${var.project}-items-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "${var.project}-items-${var.env}-secondary"
+  }
+}
+
+# ─── SQS ───────────────────────────────────────────────────────────────────
+
+resource "aws_sqs_queue" "processor_primary" {
+  provider = aws.primary
+  name     = var.sqs_queue_name
+
+  tags = {
+    Name = var.sqs_queue_name
+  }
+}
+
+resource "aws_sqs_queue" "processor_secondary" {
+  provider = aws.secondary
+  name     = var.sqs_queue_name
+
+  tags = {
+    Name = var.sqs_queue_name
+  }
+}
+
 # ─── Lambda ───────────────────────────────────────────────────────────────────
 
 module "lambda_primary" {
@@ -115,9 +169,17 @@ module "lambda_primary" {
     aws = aws.primary
   }
 
-  project       = var.project
-  env           = "${var.env}-primary"
-  function_name = var.lambda_function_name
+  project = var.project
+  env     = "${var.env}-primary"
+
+  environment_variables = {
+    ENV        = var.env
+    TABLE_NAME = aws_dynamodb_table.items_primary.name
+  }
+
+  dynamodb_table_arn      = aws_dynamodb_table.items_primary.arn
+  sqs_queue_arn           = aws_sqs_queue.processor_primary.arn
+  deployment_package_path = var.deployment_package_path
 }
 
 module "lambda_secondary" {
@@ -127,9 +189,17 @@ module "lambda_secondary" {
     aws = aws.secondary
   }
 
-  project       = var.project
-  env           = "${var.env}-secondary"
-  function_name = var.lambda_function_name
+  project = var.project
+  env     = "${var.env}-secondary"
+
+  environment_variables = {
+    ENV        = var.env
+    TABLE_NAME = aws_dynamodb_table.items_secondary.name
+  }
+
+  dynamodb_table_arn      = aws_dynamodb_table.items_secondary.arn
+  sqs_queue_arn           = aws_sqs_queue.processor_secondary.arn
+  deployment_package_path = var.deployment_package_path
 }
 
 # ─── RDS (PostgreSQL, primary only) ──────────────────────────────────────────

@@ -44,15 +44,50 @@ module "compute" {
   desired_capacity      = 1
 }
 
+# ─── DynamoDB ───────────────────────────────────────────────────────────────────
+
+resource "aws_dynamodb_table" "items" {
+  name         = "${var.project}-items-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "id"
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  tags = {
+    Name = "${var.project}-items-${var.env}"
+  }
+}
+
+# ─── SQS ───────────────────────────────────────────────────────────────────
+
+resource "aws_sqs_queue" "processor" {
+  name = var.sqs_queue_name
+
+  tags = {
+    Name = var.sqs_queue_name
+  }
+}
+
 # ─── Lambda ───────────────────────────────────────────────────────────────────
 
 module "lambda" {
   count  = var.enable_lambda ? 1 : 0
   source = "../../modules/lambda"
 
-  project       = var.project
-  env           = var.env
-  function_name = var.lambda_function_name
+  project = var.project
+  env     = var.env
+
+  environment_variables = {
+    ENV        = var.env
+    TABLE_NAME = aws_dynamodb_table.items.name
+  }
+
+  dynamodb_table_arn      = aws_dynamodb_table.items.arn
+  sqs_queue_arn           = aws_sqs_queue.processor.arn
+  deployment_package_path = var.deployment_package_path
 }
 
 # ─── RDS (PostgreSQL) ─────────────────────────────────────────────────────────

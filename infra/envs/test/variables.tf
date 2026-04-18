@@ -78,10 +78,16 @@ variable "ecr_repo_name" {
 
 # ─── Lambda ───────────────────────────────────────────────────────────────────
 
-variable "lambda_function_name" {
-  description = "Logical name of the Lambda function (appended to project-env prefix)."
+variable "sqs_queue_name" {
+  description = "Name of the SQS queue used by the Lambda processor."
   type        = string
   default     = "processor"
+}
+
+variable "deployment_package_path" {
+  description = "Path to the Chalice deployment zip. Empty string skips the update."
+  type        = string
+  default     = ""
 }
 
 # ─── Feature flags ────────────────────────────────────────────────────────────
