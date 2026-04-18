@@ -1,0 +1,226 @@
+name: PR Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect-scope:
+    name: Detect Scope
+    runs-on: ubuntu-latest
+    outputs:
+      service_changed: ${{ steps.filter.outputs.service_changed }}
+      infra_changed: ${{ steps.filter.outputs.infra_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        id: filter
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          changed_files="$(git diff --name-only "$BASE_REF" "$HEAD_REF")"
+          echo "Changed files:"
+          printf '%s\n' "$changed_files"
+
+          service_changed=false
+          infra_changed=false
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+
+            case "$file" in
+              src/*|tests/*|Dockerfile|Dockerfile.*|requirements.txt|requirements-*.txt|pyproject.toml|.github/workflows/service-*.yml)
+                service_changed=true
+                ;;
+            esac
+
+            case "$file" in
+              infra/*|.github/workflows/infra-*.yml|policies/*)
+                infra_changed=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "service_changed=$service_changed" >> "$GITHUB_OUTPUT"
+          echo "infra_changed=$infra_changed" >> "$GITHUB_OUTPUT"
+
+  wait-service-ci:
+    name: Wait For Service CI
+    runs-on: ubuntu-latest
+    needs: detect-scope
+    if: needs.detect-scope.outputs.service_changed == 'true'
+    steps:
+      - name: Wait for Service CI success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          WORKFLOW_NAME: Service CI
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            response="$(gh api "repos/$REPO/actions/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
+
+            matched_runs="$(printf '%s' "$response" | jq --arg workflow "$WORKFLOW_NAME" --argjson pr "$PR_NUMBER" '
+              [
+                .workflow_runs[]
+                | select(.name == $workflow)
+                | select(any(.pull_requests[]?; .number == $pr))
+              ]
+            ')"
+
+            run_count="$(printf '%s' "$matched_runs" | jq 'length')"
+            if [[ "$run_count" -eq 0 ]]; then
+              echo "Waiting for $WORKFLOW_NAME to start for PR #$PR_NUMBER"
+              sleep 15
+              continue
+            fi
+
+            in_progress="$(printf '%s' "$matched_runs" | jq '[.[] | select(.status != "completed")] | length')"
+            success="$(printf '%s' "$matched_runs" | jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')"
+            failure="$(printf '%s' "$matched_runs" | jq '[.[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required" or .conclusion == "startup_failure" or .conclusion == "stale"))] | length')"
+
+            if [[ "$success" -gt 0 ]]; then
+              echo "$WORKFLOW_NAME succeeded for $HEAD_SHA"
+              exit 0
+            fi
+
+            if [[ "$failure" -gt 0 ]]; then
+              echo "$WORKFLOW_NAME did not succeed for $HEAD_SHA"
+              printf '%s\n' "$matched_runs" | jq -r '.[] | "- run_id=\(.id) status=\(.status) conclusion=\(.conclusion) url=\(.html_url)"'
+              exit 1
+            fi
+
+            echo "Waiting for $WORKFLOW_NAME to finish; $in_progress run(s) still in progress"
+            sleep 15
+          done
+
+          echo "Timed out waiting for $WORKFLOW_NAME"
+          exit 1
+
+  wait-infra-ci:
+    name: Wait For Infra CI
+    runs-on: ubuntu-latest
+    needs: detect-scope
+    if: needs.detect-scope.outputs.infra_changed == 'true'
+    steps:
+      - name: Wait for Infra CI success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          WORKFLOW_NAME: Infra CI
+        run: |
+          set -euo pipefail
+
+          deadline=$((SECONDS + 1800))
+          while (( SECONDS < deadline )); do
+            response="$(gh api "repos/$REPO/actions/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
+
+            matched_runs="$(printf '%s' "$response" | jq --arg workflow "$WORKFLOW_NAME" --argjson pr "$PR_NUMBER" '
+              [
+                .workflow_runs[]
+                | select(.name == $workflow)
+                | select(any(.pull_requests[]?; .number == $pr))
+              ]
+            ')"
+
+            run_count="$(printf '%s' "$matched_runs" | jq 'length')"
+            if [[ "$run_count" -eq 0 ]]; then
+              echo "Waiting for $WORKFLOW_NAME to start for PR #$PR_NUMBER"
+              sleep 15
+              continue
+            fi
+
+            in_progress="$(printf '%s' "$matched_runs" | jq '[.[] | select(.status != "completed")] | length')"
+            success="$(printf '%s' "$matched_runs" | jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')"
+            failure="$(printf '%s' "$matched_runs" | jq '[.[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required" or .conclusion == "startup_failure" or .conclusion == "stale"))] | length')"
+
+            if [[ "$success" -gt 0 ]]; then
+              echo "$WORKFLOW_NAME succeeded for $HEAD_SHA"
+              exit 0
+            fi
+
+            if [[ "$failure" -gt 0 ]]; then
+              echo "$WORKFLOW_NAME did not succeed for $HEAD_SHA"
+              printf '%s\n' "$matched_runs" | jq -r '.[] | "- run_id=\(.id) status=\(.status) conclusion=\(.conclusion) url=\(.html_url)"'
+              exit 1
+            fi
+
+            echo "Waiting for $WORKFLOW_NAME to finish; $in_progress run(s) still in progress"
+            sleep 15
+          done
+
+          echo "Timed out waiting for $WORKFLOW_NAME"
+          exit 1
+
+  no-relevant-changes:
+    name: No Relevant CI Required
+    runs-on: ubuntu-latest
+    needs: detect-scope
+    if: needs.detect-scope.outputs.service_changed != 'true' && needs.detect-scope.outputs.infra_changed != 'true'
+    steps:
+      - name: Explain no-op
+        run: echo "PR Gate found no service or infra changes that require Service CI or Infra CI."
+
+  pr-gate:
+    name: PR Gate
+    runs-on: ubuntu-latest
+    needs:
+      - detect-scope
+      - wait-service-ci
+      - wait-infra-ci
+      - no-relevant-changes
+    if: always()
+    steps:
+      - name: Enforce gate result
+        env:
+          DETECT_SCOPE: ${{ needs.detect-scope.result }}
+          SERVICE_WAIT: ${{ needs.wait-service-ci.result }}
+          INFRA_WAIT: ${{ needs.wait-infra-ci.result }}
+          NO_CHANGES: ${{ needs.no-relevant-changes.result }}
+          SERVICE_CHANGED: ${{ needs.detect-scope.outputs.service_changed }}
+          INFRA_CHANGED: ${{ needs.detect-scope.outputs.infra_changed }}
+        run: |
+          set -euo pipefail
+
+          echo "detect-scope=$DETECT_SCOPE"
+          echo "wait-service-ci=$SERVICE_WAIT"
+          echo "wait-infra-ci=$INFRA_WAIT"
+          echo "no-relevant-changes=$NO_CHANGES"
+          echo "service_changed=$SERVICE_CHANGED"
+          echo "infra_changed=$INFRA_CHANGED"
+
+          [[ "$DETECT_SCOPE" == "success" ]]
+
+          if [[ "$SERVICE_CHANGED" == "true" && "$SERVICE_WAIT" != "success" ]]; then
+            echo "Service CI gate failed"
+            exit 1
+          fi
+
+          if [[ "$INFRA_CHANGED" == "true" && "$INFRA_WAIT" != "success" ]]; then
+            echo "Infra CI gate failed"
+            exit 1
+          fi
+
+          if [[ "$SERVICE_CHANGED" != "true" && "$INFRA_CHANGED" != "true" && "$NO_CHANGES" != "success" ]]; then
+            echo "No-op gate did not complete successfully"
+            exit 1
+          fi
+
+          echo "PR Gate passed"
