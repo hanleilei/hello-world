@@ -132,7 +132,7 @@ jobs:
       # Dependency vulnerability scan
       - name: pip-audit (dependency CVE check)
         run: |
-          pip install pip-audit
+          pip install --upgrade pip pip-audit
           pip-audit -r requirements.txt -r requirements-dev.txt
 
       # Container image scan (on Dockerfile)

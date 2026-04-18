@@ -1,6 +1,6 @@
 # Development and CI dependencies.
 # NOT bundled into the Lambda deployment package.
 chalice==1.31.3
-pytest==8.3.5
+pytest==9.0.3
 pytest-cov==7.1.0
 moto[dynamodb]==5.0.27
