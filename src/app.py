@@ -48,7 +48,7 @@ def index():
     return {
         "message": "hello-world",
         "env": os.environ.get("ENV", "dev"),
-        "version": "1.1.0",
+        "version": "1.2.0",
     }
 
 
