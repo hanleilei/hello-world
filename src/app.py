@@ -31,15 +31,21 @@ class _ProxyAwareChalice(Chalice):
     """Chalice subclass that fixes routing when deployed behind a Terraform
     /{proxy+} catch-all API Gateway resource.
 
-    API Gateway sends event['resource'] = '/{proxy+}' for every proxied
-    request, which prevents Chalice from matching any registered @app.route().
-    This subclass rewrites 'resource' to the actual request path before
-    dispatching, restoring correct routing without any other code changes.
+    Chalice routes requests using event['requestContext']['resourcePath'].
+    Our Terraform API Gateway uses a single catch-all proxy resource
+    '/{proxy+}', so every request arrives with resourcePath='/{proxy+}'.
+    Chalice cannot match that against any registered @app.route(), returning
+    405. This subclass rewrites requestContext.resourcePath to the actual
+    request path before dispatching.
     """
 
     def __call__(self, event, context):
-        if event.get("resource") == "/{proxy+}":
-            event = dict(event, resource=event.get("path", ""))
+        req_ctx = event.get("requestContext", {})
+        if req_ctx.get("resourcePath") == "/{proxy+}":
+            event = dict(
+                event,
+                requestContext={**req_ctx, "resourcePath": event.get("path", "")},
+            )
         return super().__call__(event, context)
 
 
