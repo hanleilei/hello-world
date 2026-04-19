@@ -17,7 +17,7 @@ variable "runtime" {
 variable "api_handler" {
   description = "Handler for the API Lambda function (file.function notation)"
   type        = string
-  default     = "handler.api_handler"
+  default     = "app.app"
 }
 
 variable "sqs_handler" {
