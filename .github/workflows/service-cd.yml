@@ -179,6 +179,13 @@ jobs:
           endpoint=$(terraform output -raw api_endpoint_url)
           echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
 
+      - name: Wait for Lambda to finish updating
+        run: |
+          aws lambda wait function-updated \
+            --function-name hello-world-dev \
+            --region ${{ env.AWS_REGION }}
+          echo "Lambda is Active and ready."
+
       - name: Smoke test — deployed Lambda
         run: |
           set -euo pipefail
