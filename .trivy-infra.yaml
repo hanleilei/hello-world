@@ -1,0 +1,11 @@
+# Trivy IaC misconfig config — used only by infra-ci.yml (iac-security-scan job).
+# Suppressions mirror .checkov.yaml; see that file for rationale.
+
+misconfig:
+  ignoredFindings:
+    # Lambda without VPC (AVD-AWS-0066): API Gateway pattern — intentional.
+    - avdid: AVD-AWS-0066
+    # Lambda X-Ray tracing disabled (AVD-AWS-0017 / aws-lambda-enable-tracing).
+    - avdid: AVD-AWS-0017
+    # Lambda reserved concurrency (AVD-AWS-0061).
+    - avdid: AVD-AWS-0061

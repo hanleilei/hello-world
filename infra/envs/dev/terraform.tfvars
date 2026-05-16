@@ -25,8 +25,8 @@ sqs_queue_name = "processor"
 
 # Feature flags
 enable_load_balancer = true
-enable_compute       = true
-enable_lambda        = true
+enable_compute       = false
+enable_lambda        = false
 enable_rds           = false
-enable_ecr           = true
+enable_ecr           = false
 enable_networking    = true

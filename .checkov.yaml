@@ -1,0 +1,31 @@
+# Checkov skip-check list — intentional exceptions for this project.
+# Each entry documents WHY the check is skipped, not just that it is.
+# Re-evaluate these when the architecture changes.
+
+skip-check:
+  # Lambda functions are deployed without a VPC by design.
+  # The Chalice + API Gateway pattern uses the Lambda service network; adding a
+  # VPC would require a NAT Gateway for internet egress, adding cost and
+  # complexity for no security gain on a public-facing API.
+  - CKV_AWS_117
+
+  # Lambda reserved concurrency is intentionally unconfigured.
+  # This is a demo/learning project. Reserving concurrency would reduce the
+  # shared concurrency pool for other functions in the same account.
+  - CKV_AWS_272
+
+  # Lambda X-Ray active tracing is not enabled.
+  # Tracing adds per-request cost. For this project observability is handled
+  # through CloudWatch Logs + structured logging in the application layer.
+  - CKV_AWS_50
+
+  # API-handler Lambda has no Dead Letter Queue.
+  # The API handler is a synchronous invocation (API Gateway → Lambda); failed
+  # synchronous calls return an error response to the caller immediately.
+  # The SQS handler already has the SQS queue itself as its retry mechanism.
+  - CKV_AWS_116
+
+  # CloudWatch Log Group retention is below 365 days in lower environments.
+  # var.log_retention_days is set to 7 days in dev/test by design (cost control)
+  # and configurable per environment. Production can be tuned to 365+ days.
+  - CKV_AWS_338

@@ -11,10 +11,14 @@ htmlcov/
 # Terraform plan artifacts (generated in CI — never commit)
 tfplan.binary
 tfplan.json
+planning.md
+CLAUDE.md
+AGENTS.md
 
 # Local env
 .env
 *.tfvars.local
+*.pdf
 .chalice/
 
 # Terraform working directories (ignore at any depth)

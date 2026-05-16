@@ -1,5 +1,5 @@
 # Infra CI — runs on every PR targeting main that touches infra or pipeline files.
-# Stages: secret-scan → fmt/validate → plan (all envs) → OPA policy check
+# Stages: secret-scan → fmt/validate → [plan (all envs) ∥ iac-security-scan] → OPA policy check
 #
 # Required repository secrets:
 #   AWS_ROLE_ARN  — IAM role ARN for OIDC federation (read-only plan permissions)
@@ -20,6 +20,17 @@ on:
   # Called by release.yml on push to main to enforce infra-ci → infra-cd ordering.
   workflow_call:
 
+  # Manual trigger: run a single environment or all (default).
+  # Usage: gh workflow run infra-ci.yml --ref <branch> --field environment=dev
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run (leave blank or "all" for all envs)'
+        required: false
+        default: 'all'
+        type: choice
+        options: [all, dev, test, perf, staging, production]
+
 env:
   TF_VERSION: '1.10.0'
   AWS_REGION: 'us-east-1'
@@ -38,6 +49,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ─── Stage 0: Resolve environment matrix ──────────────────────────────────────
+  # 触发规则：
+  #   pull_request  → 分析变更文件，只运行受影响的环境；共享路径变更则全跑
+  #   workflow_dispatch → 使用下拉框选择的环境
+  #   workflow_call     → 始终全部环境（release.yml 完整晋级链）
+  set-matrix:
+    name: Resolve Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.pick.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 需要完整历史才能做 git diff
+
+      - id: pick
+        run: |
+          ALL='["dev","test","perf","staging","production"]'
+
+          # ── workflow_dispatch: 使用用户选择的环境 ──────────────────────────
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            INPUT="${{ github.event.inputs.environment }}"
+            if [[ -z "$INPUT" || "$INPUT" == "all" ]]; then
+              echo "envs=$ALL" >> "$GITHUB_OUTPUT"
+            else
+              echo "envs=[\"$INPUT\"]" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # ── workflow_call (release.yml): 始终全部环境 ──────────────────────
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "envs=$ALL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ── pull_request: 分析变更文件 ─────────────────────────────────────
+          git fetch origin ${{ github.base_ref }} --depth=1
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+
+          echo "=== Changed files ==="
+          echo "$CHANGED"
+          echo "====================="
+
+          # 共享路径变更 → 所有环境都受影响
+          if echo "$CHANGED" | grep -qE \
+            '^infra/modules/|^infra/envs/_shared/|^infra/bootstrap/|^\.github/workflows/infra-|^policies/'; then
+            echo "Shared path changed → all envs"
+            echo "envs=$ALL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 收集有变更的环境
+          ENVS=()
+          for ENV in dev test perf staging production; do
+            if echo "$CHANGED" | grep -q "^infra/envs/$ENV/"; then
+              ENVS+=("\"$ENV\"")
+            fi
+          done
+
+          if [[ ${#ENVS[@]} -eq 0 ]]; then
+            # 未命中任何已知路径（如仅改了 docs），保守地全跑
+            echo "No env-specific path matched → all envs (safe fallback)"
+            echo "envs=$ALL" >> "$GITHUB_OUTPUT"
+          else
+            printf -v JOINED '%s,' "${ENVS[@]}"
+            echo "Detected envs: [${JOINED%,}]"
+            echo "envs=[${JOINED%,}]" >> "$GITHUB_OUTPUT"
+          fi
+
   # ─── Stage 1: Secret scan ────────────────────────────────────────────────────
   secret-scan:
     name: Secret Scan
@@ -56,11 +137,11 @@ jobs:
   fmt-validate:
     name: Fmt & Validate / ${{ matrix.env }}
     runs-on: ubuntu-latest
-    needs: secret-scan
+    needs: [secret-scan, set-matrix]
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, test, perf, staging, production]
+        env: ${{ fromJson(needs.set-matrix.outputs.envs) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,11 +171,11 @@ jobs:
   plan:
     name: Plan / ${{ matrix.env }}
     runs-on: ubuntu-latest
-    needs: fmt-validate
+    needs: [fmt-validate, set-matrix]
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, test, perf, staging, production]
+        env: ${{ fromJson(needs.set-matrix.outputs.envs) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -159,15 +240,54 @@ jobs:
             infra/envs/${{ matrix.env }}/tfplan.json
           retention-days: 7
 
+  # ─── Stage 3.5: IaC security scan (runs in parallel with plan) ─────────────────
+  iac-security-scan:
+    name: IaC Security Scan
+    runs-on: ubuntu-latest
+    needs: fmt-validate
+    steps:
+      - uses: actions/checkout@v4
+
+      # Checkov — comprehensive Terraform IaC SAST.
+      # Skip-checks are declared in .checkov.yaml at the repo root.
+      - name: Checkov (IaC SAST)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra/
+          framework: terraform
+          soft_fail: false
+          output_format: cli,sarif
+          output_file_path: console,checkov-results.sarif
+          config_file: .checkov.yaml
+
+      # Trivy — misconfig scanning (complements Checkov, consistent with service-ci.yml).
+      # Excludes Lambda-in-VPC and X-Ray rules: same rationale as .checkov.yaml.
+      - name: Trivy (IaC misconfig)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: infra/
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          trivy-config: .trivy-infra.yaml
+
+      - name: Upload Checkov SARIF
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: checkov-sarif
+          path: checkov-results.sarif
+          retention-days: 7
+
   # ─── Stage 4: OPA policy checks on plan JSON ──────────────────────────────────
   opa-check:
     name: OPA Policy / ${{ matrix.env }}
     runs-on: ubuntu-latest
-    needs: plan
+    needs: [plan, iac-security-scan, set-matrix]
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, test, perf, staging, production]
+        env: ${{ fromJson(needs.set-matrix.outputs.envs) }}
     steps:
       - uses: actions/checkout@v4
 
