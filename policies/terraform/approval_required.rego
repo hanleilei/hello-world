@@ -39,12 +39,19 @@ deny contains msg if {
 	)
 }
 
-# ─── Rule: only push events trigger deployments (not manual workflow_dispatch
-#     without proper controls, not pull_request events) ─────────────────────
+# ─── Rule: only authorised event types trigger deployments ───────────────────
+# push            — direct merge to main via release.yml
+# workflow_call   — release.yml chains into infra-cd.yml; github.event_name
+#                   is "workflow_call" in the called workflow even when the
+#                   root trigger was a push event
+# workflow_dispatch — manual trigger from the Actions UI (explicit in infra-cd.yml)
+# pull_request and all other events are rejected.
+allowed_events := {"push", "workflow_call", "workflow_dispatch"}
+
 deny contains msg if {
-	input.event != "push"
+	not input.event in allowed_events
 	msg := sprintf(
-		"CD pipeline must be triggered by a 'push' event. Got: '%v'. Use a PR merge workflow.",
+		"CD pipeline must be triggered by push, workflow_call, or workflow_dispatch. Got: '%v'.",
 		[input.event],
 	)
 }

@@ -122,16 +122,16 @@ data "aws_iam_policy_document" "github_ci_state" {
   # Scope is restricted to *.tflock keys only — actual state files remain
   # read-only for the CI role.
   statement {
-    sid     = "S3LockFile"
-    effect  = "Allow"
-    actions = ["s3:PutObject", "s3:DeleteObject"]
+    sid       = "S3LockFile"
+    effect    = "Allow"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
     resources = ["${aws_s3_bucket.terraform_state.arn}/*.tflock"]
   }
 
   statement {
-    sid     = "StateLock"
-    effect  = "Allow"
-    actions = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    sid       = "StateLock"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.terraform_lock.arn]
   }
 }
@@ -216,9 +216,9 @@ data "aws_iam_policy_document" "github_cd_state" {
   }
 
   statement {
-    sid     = "StateLock"
-    effect  = "Allow"
-    actions = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+    sid       = "StateLock"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
     resources = [aws_dynamodb_table.terraform_lock.arn]
   }
 }

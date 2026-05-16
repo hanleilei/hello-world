@@ -127,3 +127,48 @@ variable "enable_networking" {
   type        = bool
   default     = false
 }
+
+# ─── EKS ──────────────────────────────────────────────────────────────────────
+
+variable "enable_eks" {
+  description = "Create the EKS cluster and managed node group with Cilium."
+  type        = bool
+  default     = false
+}
+
+variable "eks_kubernetes_version" {
+  description = "Kubernetes version for the EKS cluster."
+  type        = string
+  default     = "1.35"
+}
+
+variable "eks_node_instance_types" {
+  description = "EC2 instance types for the EKS managed node group."
+  type        = list(string)
+  default     = ["t3.medium"]
+}
+
+variable "eks_node_desired_size" {
+  description = "Desired number of worker nodes."
+  type        = number
+  default     = 2
+}
+
+variable "eks_node_min_size" {
+  description = "Minimum number of worker nodes."
+  type        = number
+  default     = 1
+}
+
+variable "eks_node_max_size" {
+  description = "Maximum number of worker nodes."
+  type        = number
+  default     = 3
+}
+
+variable "cilium_version" {
+  description = "Helm chart version of Cilium to install."
+  type        = string
+  default     = "1.19.4"
+}
+

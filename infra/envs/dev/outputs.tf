@@ -18,3 +18,18 @@ output "rds_secret_arn" {
   value       = var.enable_rds ? module.rds[0].secret_arn : null
   sensitive   = true
 }
+
+output "eks_cluster_name" {
+  description = "EKS cluster name."
+  value       = var.enable_eks ? module.eks[0].cluster_name : null
+}
+
+output "eks_cluster_endpoint" {
+  description = "EKS API server endpoint."
+  value       = var.enable_eks ? module.eks[0].cluster_endpoint : null
+}
+
+output "eks_oidc_provider_arn" {
+  description = "ARN of the IAM OIDC provider for IRSA."
+  value       = var.enable_eks ? module.eks[0].oidc_provider_arn : null
+}

@@ -124,3 +124,69 @@ module "ecr" {
   env             = var.env
   repository_name = var.ecr_repo_name
 }
+
+# ─── EKS + Cilium ─────────────────────────────────────────────────────────────
+
+module "eks" {
+  count  = var.enable_eks ? 1 : 0
+  source = "../../modules/eks"
+
+  project    = var.project
+  env        = var.env
+  vpc_id     = try(module.networking[0].vpc_id, "")
+  subnet_ids = try(module.networking[0].private_subnet_ids, [])
+
+  public_subnet_ids  = try(module.networking[0].public_subnet_ids, [])
+  private_subnet_ids = try(module.networking[0].private_subnet_ids, [])
+
+  kubernetes_version     = var.eks_kubernetes_version
+  node_instance_types    = var.eks_node_instance_types
+  node_desired_size      = var.eks_node_desired_size
+  node_min_size          = var.eks_node_min_size
+  node_max_size          = var.eks_node_max_size
+  endpoint_public_access = true
+}
+
+# ─── Cilium (CNI chaining mode) ───────────────────────────────────────────────
+# Cilium is deployed alongside the AWS VPC CNI in chaining mode, providing
+# eBPF-based network policy enforcement, L7 visibility, and transparent
+# encryption without replacing the AWS CNI for IPAM.
+#
+# First-time bootstrap: terraform apply -target=module.eks
+# Then:                 terraform apply
+
+resource "helm_release" "cilium" {
+  count = var.enable_eks ? 1 : 0
+
+  name            = "cilium"
+  repository      = "https://helm.cilium.io/"
+  chart           = "cilium"
+  version         = var.cilium_version
+  namespace       = "kube-system"
+  atomic          = true
+  cleanup_on_fail = true
+  timeout         = 600
+
+  values = [
+    yamlencode({
+      # CNI chaining mode: Cilium runs alongside the AWS VPC CNI.
+      # AWS VPC CNI handles IPAM; Cilium provides eBPF policy and observability.
+      cni = {
+        chainingMode = "aws-cni"
+        exclusive    = false
+      }
+      # routingMode replaces the removed "tunnel" key (deprecated in Cilium 1.14).
+      # "native" = no overlay tunnel; AWS VPC routes packets directly.
+      routingMode          = "native"
+      enableIPv4Masquerade = false
+      nodePort             = { enabled = true }
+      hubble = {
+        relay = { enabled = true }
+        ui    = { enabled = true }
+      }
+    })
+  ]
+
+  depends_on = [module.eks]
+}
+
