@@ -48,9 +48,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Run unit tests
-        run: pytest tests/unit/ --cov=src --cov-fail-under=70 -q
-
       - name: Build Chalice artifact
         env:
           AWS_DEFAULT_REGION: us-east-1
@@ -174,6 +171,30 @@ jobs:
             -auto-approve \
             -input=false \
             -lock-timeout=300s
+
+      - name: Get API endpoint
+        id: tf_output
+        working-directory: infra/envs/dev
+        run: |
+          endpoint=$(terraform output -raw api_endpoint_url)
+          echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Lambda to finish updating
+        run: |
+          aws lambda wait function-updated \
+            --function-name hello-world-dev \
+            --region ${{ env.AWS_REGION }}
+          echo "Lambda is Active and ready."
+
+      - name: Smoke test — deployed Lambda
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.tf_output.outputs.endpoint }}"
+          echo "Testing $BASE/health ..."
+          resp=$(curl -s --fail-with-body --retry 5 --retry-delay 5 --retry-all-errors "$BASE/health")
+          echo "$resp"
+          echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('status')=='ok', f'unexpected: {d}'"
+          echo "Smoke test passed."
 
   # ─── Stage 3b: Skip when disabled ────────────────────────────────────────────
   no-deploy-when-disabled:

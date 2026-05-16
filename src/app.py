@@ -26,7 +26,30 @@ from chalicelib import db
 
 logger = logging.getLogger(__name__)
 
-app = Chalice(app_name="hello-world")
+
+class _ProxyAwareChalice(Chalice):
+    """Chalice subclass that fixes routing when deployed behind a Terraform
+    /{proxy+} catch-all API Gateway resource.
+
+    Chalice routes requests using event['requestContext']['resourcePath'].
+    Our Terraform API Gateway uses a single catch-all proxy resource
+    '/{proxy+}', so every request arrives with resourcePath='/{proxy+}'.
+    Chalice cannot match that against any registered @app.route(), returning
+    405. This subclass rewrites requestContext.resourcePath to the actual
+    request path before dispatching.
+    """
+
+    def __call__(self, event, context):
+        req_ctx = event.get("requestContext", {})
+        if req_ctx.get("resourcePath") == "/{proxy+}":
+            event = dict(
+                event,
+                requestContext={**req_ctx, "resourcePath": event.get("path", "")},
+            )
+        return super().__call__(event, context)
+
+
+app = _ProxyAwareChalice(app_name="hello-world")
 app.log.setLevel(logging.INFO)
 
 _START_TIME = time.time()
@@ -48,7 +71,7 @@ def index():
     return {
         "message": "hello-world",
         "env": os.environ.get("ENV", "dev"),
-        "version": "1.1.0",
+        "version": "1.2.0",
     }
 
 
